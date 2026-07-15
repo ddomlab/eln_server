@@ -4,10 +4,13 @@ None of these need an eLN API key or network access.
 """
 
 import json
+import threading
 
 import pytest
 
+import web.interface as interface
 import web.search_process as search_process
+from automations.labels.generate_label import LabelGenerator
 from eln_common.fill_info import check_if_cas
 from web.auth import get_key
 
@@ -138,6 +141,96 @@ class TestCasValidation:
     )
     def test_invalid_cas(self, not_cas):
         assert not check_if_cas(not_cas)
+
+
+class TestConfig:
+    def test_config_yaml_values_are_loaded(self):
+        """config.yaml at the repo root is the source of settings; check that it
+        parses and that config.py exposes it with the expected types/resolution."""
+        import eln_common.config as config
+
+        assert config.URL.startswith("http")
+        assert isinstance(config.AUTO_UPLOAD_LABELS, bool)
+        # every configured path is absolute after repo-root resolution
+        for p in (config.API_KEY_PATH, config.PRINTER_PATH, config.SLACK_BOT_TOKEN_PATH):
+            assert p.startswith("/"), p
+
+    def test_relative_paths_resolve_from_repo_root(self):
+        import eln_common.config as config
+
+        assert config._path("eln_common/api_key") == str(
+            config.PROJECT_ROOT / "eln_common" / "api_key"
+        )
+        assert config._path("/tmp/label.pdf") == "/tmp/label.pdf"
+
+
+class FakeRM:
+    """Minimal Resource_Manager stand-in for label/creation tests."""
+
+    printer_path = "/tmp/label.pdf"
+
+    def __init__(self, item: dict | None = None, create_id: int = 999):
+        self.item = item
+        self.create_id = create_id
+        self.created = []
+
+    def get_item(self, id):
+        return self.item
+
+    def create_item(self, category, body):
+        self.created.append((category, body))
+        return self.create_id
+
+
+class TestLabelGenerator:
+    def test_missing_received_field_leaves_date_blank(self):
+        rm = FakeRM(item={
+            "id": 393,
+            "title": "No received date",
+            "category": 2,
+            "metadata": json.dumps({"extra_fields": {}}),
+        })
+        gen = LabelGenerator(rm)  # type: ignore[arg-type]
+        gen.add_item(393)
+        assert gen.records[0]["received_date"] == ""
+
+    def test_null_metadata_leaves_date_blank(self):
+        rm = FakeRM(item={"id": 393, "title": "t", "category": 2, "metadata": None})
+        gen = LabelGenerator(rm)  # type: ignore[arg-type]
+        gen.add_item(393)
+        assert gen.records[0]["received_date"] == ""
+
+
+class TestAddResourceAutofill:
+    def test_add_resource_triggers_background_autofill(self, client, monkeypatch):
+        fake_rm = FakeRM(create_id=999)
+        monkeypatch.setattr(interface, "rm", lambda: fake_rm)
+
+        autofilled = threading.Event()
+        autofill_calls = []
+
+        def fake_autofill_item(rmn, item_id, **kwargs):
+            autofill_calls.append(item_id)
+            autofilled.set()
+
+        monkeypatch.setattr(interface.autofill, "autofill_item", fake_autofill_item)
+
+        resp = client.post("/add_resource", json={
+            "title": "new thing",
+            "body": "",
+            "category": 2,
+            "extra_fields": {},
+        })
+        assert resp.status_code == 200
+        assert resp.get_json() == {
+            "status": "ok",
+            "received": {"title": "new thing", "body": "", "category": 2, "extra_fields": {}},
+            "id": 999,
+        }
+        assert fake_rm.created[0][0] == 2
+        # the autofill runs on a background thread right after creation
+        assert autofilled.wait(timeout=2), "autofill was not triggered by /add_resource"
+        assert autofill_calls == [999]
 
 
 class TestCreateLabel:

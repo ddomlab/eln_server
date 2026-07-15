@@ -119,11 +119,9 @@ class TestMutations:
 
 
 class TestPrint:
-    def test_print_merges_uploaded_label(self, client, auth_headers, live_rm):
-        """Exercises the uploads read path (read_uploads + read_upload binary)."""
-        names = [f.to_dict()["real_name"] for f in live_rm.get_uploaded_files(TEST_ITEM_ID)]
-        if "label.pdf" not in names:
-            pytest.skip(f"Item {TEST_ITEM_ID} has no uploaded label.pdf")
+    def test_print_generates_label_on_the_fly(self, client, auth_headers):
+        """/print builds the label from the item's current data at request time;
+        it does not depend on a label.pdf upload existing on the resource."""
         resp = client.post("/print", json={"id": [TEST_ITEM_ID]}, headers=auth_headers)
         assert resp.status_code == 200
         assert resp.data.startswith(b"%PDF")

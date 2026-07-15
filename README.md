@@ -30,14 +30,21 @@ server-held key for request handling.
 
 Generate keys at https://eln.ddomlab.org/ucp.php?tab=3. The one-off scripts in
 `scripts/` are the exception: they read a local `eln_common/api_key` file
-(gitignored), or the path in `$ELN_API_KEY_PATH`.
+(gitignored), or the `api_key_path` set in `config.yaml`.
 
 The Slack bot token is server-side: place it at `automations/slack_bot_token`
-or point `$SLACK_BOT_TOKEN_PATH` at it.
+or set `slack_bot_token_path` in `config.yaml`.
+
+## Configuration
+
+Server settings live in `config.yaml` at the repo root (relative paths resolve
+from there): `eln_url`, `api_key_path`, `printer_path`,
+`slack_bot_token_path`, and `auto_upload_labels`. If the file is missing, the
+defaults shown in it (and in `eln_common/config.py`) apply.
 
 ## Automation API
 
-- `POST /api/autofill` — label upload, PubChem info fill, RDKit image.
+- `POST /api/autofill` — PubChem info fill, RDKit image (and, legacy, label upload).
   Optional JSON body: `{"id": 123}` for one item, or
   `{"start": 300, "end": null, "size": 5, "force": false, "info": true, "label": true, "image": true}`
   (defaults shown; matches the old cron behavior). Errors are reported to the
@@ -46,7 +53,13 @@ or point `$SLACK_BOT_TOKEN_PATH` at it.
   peroxide-former lists and sends Slack reminders. Returns match counts.
 
 The `/add_resource` UI route now also triggers an autofill of the new item in
-the background, so labels/info/images appear immediately after creation.
+the background, so info/images appear immediately after creation.
+
+Label printing (`/print`) generates the PDF on the fly from the item's current
+data. Attaching a `label.pdf` upload to each resource during autofill is a
+legacy feature, disabled by default; set `auto_upload_labels: true` in
+`config.yaml` to re-enable it (the `label` flag in the autofill body is
+ignored unless it is set).
 
 ## Running the server
 

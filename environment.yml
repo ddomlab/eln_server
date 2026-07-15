@@ -17,5 +17,6 @@ dependencies:  # Packages should be installed through conda if possible
   - pip:  # Install additional packages through pip if they're not available in the default conda channel
     - pubchempy
     - elabapi_python==5.6.0
+    - pyyaml
     - blabel
     - rdkit

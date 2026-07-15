@@ -22,7 +22,9 @@ class LabelGenerator:
         if item["category"] == 1:
             date = None  # making date = None trips the if statement in the label.html file. this is because jinja can check if a variable exists or not
         elif item["category"] in range(2, 5):
-            date = json.loads(item["metadata"])["extra_fields"]["Received"]["value"]
+            # items without a Received field just get a blank date on the label
+            extra_fields = json.loads(item["metadata"] or "{}").get("extra_fields") or {}
+            date = extra_fields.get("Received", {}).get("value", "")
         ## adds records to list to be printed
         if len(item["title"]) > 25:
             item["title"] = item["title"][:22] + '...'
@@ -36,6 +38,6 @@ class LabelGenerator:
         )
 
     # generates pdf for all labels in records
-    def write_labels(self):
-        self.label_writer.write_labels(self.records, target=self.path)
+    def write_labels(self, target: str | None = None):
+        self.label_writer.write_labels(self.records, target=target or self.path)
         self.records = []

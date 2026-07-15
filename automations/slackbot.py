@@ -1,7 +1,6 @@
-import os
-from pathlib import Path
-
 import requests
+
+import eln_common.config as config
 
 # channel ID of the eln_bot channel, can be found by clicking "view channel details"
 DEFAULT_CHANNEL: str = "C093HPVRLKD"
@@ -10,10 +9,7 @@ ERROR_CHANNEL: str = "G093HPVQ9AP"
 # channel for peroxide former reminders
 PEROXIDE_CHANNEL: str = "C07SSMMU9E1"
 
-current_dir: Path = Path(__file__).parent
-BOT_TOKEN_PATH: str = os.environ.get(
-    "SLACK_BOT_TOKEN_PATH", str(current_dir / "slack_bot_token")
-)
+BOT_TOKEN_PATH: str = config.SLACK_BOT_TOKEN_PATH
 
 
 def _get_token() -> str:

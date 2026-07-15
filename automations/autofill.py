@@ -3,6 +3,7 @@ import json
 import automations.image_generator as ig
 import automations.slackbot as slackbot
 from automations.labels.generate_label import LabelGenerator
+import eln_common.config as config
 import eln_common.fill_info as fill_info
 from eln_common.resourcemanage import Resource_Manager
 
@@ -41,7 +42,9 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
         return
     type: int = int(item["category"])
     id = item["id"]
-    if label:
+    # Legacy: /print now generates labels on the fly, so the label.pdf upload is
+    # only made when ELN_AUTO_UPLOAD_LABELS is set (see eln_common/config.py).
+    if label and config.AUTO_UPLOAD_LABELS:
         create_and_upload_labels(rm, id)
     if type == 2 or type == 3:  # limits to only polymers and compounds
         metadata = json.loads(item["metadata"])

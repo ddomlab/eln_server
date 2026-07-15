@@ -5,8 +5,8 @@ After=network-online.target
 
 [Service]
 # adjust User/paths to match the server
+# server settings (Slack token path etc.) come from config.yaml in the checkout
 WorkingDirectory=/usr/share/applications/eln_server
-Environment=SLACK_BOT_TOKEN_PATH=/usr/share/applications/eln_server/automations/slack_bot_token
 ExecStart=/usr/share/applications/miniconda3/envs/ddomlabbackend/bin/gunicorn -w 4 -b 0.0.0.0:5000 app:app
 Restart=on-failure
 

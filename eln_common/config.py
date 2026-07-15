@@ -3,16 +3,43 @@ from pathlib import Path
 
 import elabapi_python
 import urllib3
+import yaml
 
 current_dir = Path(__file__).parent
-## CONFIGURATION VARIABLES ##
+PROJECT_ROOT = current_dir.parent
+CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+
+
+def _load_config_file() -> dict:
+    try:
+        with open(CONFIG_PATH) as f:
+            data = yaml.safe_load(f)
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+
+
+def _path(value: str) -> str:
+    """Resolve a configured path relative to the repo root (absolute paths pass through)."""
+    return str(PROJECT_ROOT / Path(os.path.expanduser(value)))
+
+
+_cfg = _load_config_file()
+
+## CONFIGURATION VARIABLES (from config.yaml at the repo root; defaults below) ##
 # Interactive/API callers pass their own eLabFTW API key with each request, so the
 # server itself does not need a key file. A local 'api_key' file (gitignored) is
 # still supported as a fallback for running the one-off scripts in scripts/.
 # New api keys can be generated at https://eln.ddomlab.org/ucp.php?tab=4
-API_KEY_PATH = os.environ.get("ELN_API_KEY_PATH", str(current_dir / "api_key"))
-URL = os.environ.get("ELN_URL", "https://eln.ddomlab.org/api/v2")
-PRINTER_PATH = os.environ.get("ELN_PRINTER_PATH", "/tmp/label.pdf")
+API_KEY_PATH = _path(_cfg.get("api_key_path", "eln_common/api_key"))
+URL = _cfg.get("eln_url", "https://eln.ddomlab.org/api/v2")
+PRINTER_PATH = _path(_cfg.get("printer_path", "/tmp/label.pdf"))
+SLACK_BOT_TOKEN_PATH = _path(_cfg.get("slack_bot_token_path", "automations/slack_bot_token"))
+# Legacy feature: /print used to fetch a label.pdf stored on each resource, so
+# autofill uploaded one to every new item. /print now generates labels on the
+# fly, making the uploads redundant; set auto_upload_labels: true in
+# config.yaml to keep attaching label.pdf to resources anyway.
+AUTO_UPLOAD_LABELS = bool(_cfg.get("auto_upload_labels", False))
 ##################################################
 
 # allows the connection
