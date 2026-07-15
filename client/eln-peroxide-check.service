@@ -1,0 +1,10 @@
+[Unit]
+Description=ELN peroxide former check (Slack reminders)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=ELN_SERVER_URL=http://localhost:5000
+Environment=ELN_API_KEY_FILE=/etc/eln-client/api_key
+ExecStart=/usr/bin/python3 /opt/eln-client/eln_timer_client.py check_peroxides

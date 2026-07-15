@@ -1,0 +1,13 @@
+<img src="{{ label_tools.qr_code(qr_text) }}"/>
+<span class='label'>
+    {{ name }}<br/>
+    id: {{ id_num }} <br/>
+    {% if received_date %}
+    <div class="extra_info">
+    Received: {{ received_date }}<br/>
+    Open Date:
+    </div>
+    {% endif %}
+</span>
+
+

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Form Submission</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap");
+      * {
+        font-family: "Roboto Mono", monospace;
+        box-sizing: border-box;
+      }
+
+      body {
+        background-color: #fdfdfd;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        color: #111;
+      }
+
+      .form-wrapper {
+        position: relative;
+        background-color: #ffffff;
+        padding: 2em 3em;
+        border-radius: 0px;
+        border: 3px solid #000;
+        box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.4);
+        width: 100%;
+        max-width: 620px;
+      }
+
+      h2 {
+        text-align: center;
+        margin-bottom: 1em;
+        font-size: 1.6em;
+        font-weight: bold;
+      }
+
+      .field {
+        margin-bottom: 1.5em;
+      }
+
+      label {
+        font-weight: 700;
+        display: block;
+        margin-bottom: 0.4em;
+      }
+
+      input,
+      select {
+        width: 100%;
+        padding: 0.6em 0.75em;
+        border: 2px solid #333;
+        border-radius: 0;
+        font-size: 1em;
+        background: #fff;
+        color: #111;
+        box-shadow: 2px 2px 0 #ccc;
+        transition: box-shadow 0.2s ease;
+      }
+
+      input:focus,
+      select:focus {
+        outline: none;
+        box-shadow: 2px 2px 0 #555;
+        border-color: #000;
+      }
+
+      .unit {
+        margin-left: 0.5em;
+        font-size: 0.9em;
+        color: #444;
+      }
+
+      .description {
+        font-size: 0.85em;
+        color: #666;
+        margin-top: 0.3em;
+      }
+
+      button[type="submit"] {
+        display: block;
+        width: 100%;
+        padding: 0.9em;
+        background-color: #000;
+        color: #fff;
+        font-weight: bold;
+        border: 2px solid #000;
+        border-radius: 0;
+        font-size: 1em;
+        cursor: pointer;
+        box-shadow: 3px 3px 0 #888;
+        transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease;
+      }
+
+      button[type="submit"]:hover {
+        background-color: #333;
+        box-shadow: 3px 3px 0 #444;
+      }
+
+      #qr-content-type-field {
+        display: none;
+      }
+      #qr-content-field {
+        display: none;
+      }
+      #qr-button {
+        position: absolute;
+        top: 1em;
+        left: 1em;
+        text-align: center;
+        cursor: pointer;
+      }
+
+      #qr-go-back {
+        box-shadow: 2px 2px 0 #bbb, 0 0 0 2px #999;
+        padding: 4px;
+        background-color: #f2f2f2;
+        transition: box-shadow 0.2s ease, background-color 0.2s ease;
+      }
+
+      #qr-button:hover #qr-go-back {
+        background-color: #e8e8e8;
+        box-shadow: 3px 3px 0 #444, 0 0 0 2px #000;
+      }
+
+      #qr-button div:last-child {
+        font-size: 0.9em;
+        margin-top: 0.3em;
+        font-weight: bold;
+        color: #111;
+      }
+    </style>
+  </head>
+  <body>
+    <form class="form-wrapper" id="customForm">
+      <h2>Generate Label</h2>
+
+      <!-- Top-left QR code button -->
+      <div id="qr-button">
+        <div id="qr-go-back"></div>
+        <div>Go Back</div>
+      </div>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+      <script>
+        new QRCode(document.getElementById("qr-go-back"), {
+          text: "$",
+          width: 60,
+          height: 60,
+          correctLevel: QRCode.CorrectLevel.H,
+        });
+
+        document.getElementById("qr-button").addEventListener("click", () => {
+          window.location.href = "/";
+        });
+      </script>
+      <div class="field">
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title" />
+      </div>
+
+      <div class="field">
+        <label for="text">Text</label>
+        <textarea id="text" name="text" , rows="6" , cols="50"> </textarea>
+      </div>
+
+      <div class="field">
+        <label for="quantity">Height (Default 18):</label>
+          <input placeholder="18" style="width: 80px" type="number" id="height" name="height" min="10" max="50" /> <b>mm</b>
+        <!-- <span style="text-align: right">mmm</span> -->
+
+      </div>
+
+      <div class="field">
+        <label for="icon">Icon</label>
+        <select id="icon" name="icon" required>
+          <option value="None">None</option>
+          <option value="QR Code">QR Code</option>
+          <option value="i">i</option>
+          <option value="!">!</option>
+          <option value="ban">ban</option>
+        </select>
+      </div>
+
+      <div class="field" id="qr-content-type-field">
+        <label for="qrContentType">QR Content Type</label>
+        <select id="qrContentType" name="qrContentType">
+          <option value="Text">Text</option>
+          <option value="Resource">Resource</option>
+        </select>
+      </div>
+      <div class="field" id="qr-content-field">
+        <label for="text">QR Content/Resource ID</label>
+        <input type="text" id="codecontent" name="text" />
+      </div>
+
+      <button type="submit">Submit</button>
+    </form>
+
+    <script>
+      const iconSelect = document.getElementById("icon");
+      const qrContentTypeField = document.getElementById(
+        "qr-content-type-field"
+      );
+      const qrContentField = document.getElementById("qr-content-field");
+      window.addEventListener("DOMContentLoaded", () => {
+        document.getElementById("icon").value = "None";
+      });
+      iconSelect.addEventListener("change", function () {
+        if (this.value === "QR Code") {
+          qrContentField.style.display = "block";
+          qrContentTypeField.style.display = "block";
+        } else {
+          qrContentField.style.display = "none";
+          qrContentTypeField.style.display = "none";
+          qrContentField.querySelector("input").value = ""; // Clear QR content field
+        }
+      });
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "$") {
+          console.log("Special trigger detected");
+          window.location.href = "/";
+        }
+      });
+      document
+        .getElementById("customForm")
+        .addEventListener("submit", function (e) {
+          e.preventDefault();
+
+          const data = {
+            Title: document.getElementById("title").value,
+            Text: document.getElementById("text").value,
+            Icon: document.getElementById("icon").value,
+            Height: document.getElementById("height").value || 18, // Default to 18 if empty
+          };
+
+          if (data.Icon === "QR Code") {
+            data.QRContentType = document.getElementById("qrContentType").value;
+            data.QRContent = document.getElementById("codecontent").value;
+          }
+
+          fetch("/create_label", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(data),
+          })
+            .then((response) => {
+              if (!response.ok) {
+                error();
+                throw new Error("Print request failed");
+              }
+              // console.log("Print request sent");
+              return response.blob();
+            })
+            .then((blob) => {
+              const pdfUrl = URL.createObjectURL(blob);
+              window.open(pdfUrl, "_blank");
+            })
+            .catch((err) => {
+              console.error("Error sending print request:", err);
+            });
+        });
+    </script>
+  </body>
+</html>

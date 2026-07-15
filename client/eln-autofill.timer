@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ELN autofill every 10 minutes
+
+[Timer]
+OnCalendar=*:0/10
+# don't pile up a missed run backlog after downtime
+Persistent=false
+
+[Install]
+WantedBy=timers.target

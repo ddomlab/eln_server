@@ -1,0 +1,109 @@
+﻿DTXSID,PREFERRED NAME,CASRN,INCHIKEY,IUPAC NAME,SMILES,INCHI STRING,MOLECULAR FORMULA,AVERAGE MASS,MONOISOTOPIC MASS,QC Level,# ToxCast Active,Total Assays,% ToxCast Active
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID0025286,Ethylene glycol dimethyl ether,110-71-4,XTHFKEDIFFGKHM-UHFFFAOYSA-N,"1,2-Dimethoxyethane",COCCOC,"InChI=1S/C4H10O2/c1-5-3-4-6-2/h3-4H2,1-2H3
+",C4H10O2,90.122,90.068080,1,4/234,234,2
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID0025604,Ethyl t-butyl ether,637-92-3,NUMQCACRALPSHD-UHFFFAOYSA-N,2-Ethoxy-2-methylpropane,CCOC(C)(C)C,"InChI=1S/C6H14O/c1-5-7-6(2,3)4/h5H2,1-4H3
+",C6H14O,102.177,102.104465,1,0/234,234,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID0026387,1-Propyne,74-99-7,MWWATHDPGQKSAR-UHFFFAOYSA-N,Prop-1-yne,CC#C,"InChI=1S/C3H4/c1-3-2/h1H,2H3
+",C3H4,40.065,40.031300,1, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID0027014,2-Octanol,123-96-6,SJWFXCIHNDVPSH-UHFFFAOYSA-N,Octan-2-ol,CCCCCCC(C)O,"InChI=1/C8H18O/c1-3-4-5-6-7-8(2)9/h8-9H,3-7H2,1-2H3
+",C8H18O,130.231,130.135765,1,5/362,362,1
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID0059742,"Propanal, 2-methyl-, oxime",151-00-8,SYJPAKDNFZLSMV-UHFFFAOYSA-N,N-(2-Methylpropylidene)hydroxylamine,CC(C)C=NO,"InChI=1S/C4H9NO/c1-4(2)3-5-6/h3-4,6H,1-2H3
+",C4H9NO,87.122,87.068414,2, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID00870780,2-​Cyclohexen-​1-​ol,822-67-3,PQANGXXSEABURG-UHFFFAOYSA-N,Cyclohex-2-en-1-ol,OC1CCCC=C1,"InChI=1/C6H10O/c7-6-4-2-1-3-5-6/h2,4,6-7H,1,3,5H2
+",C6H10O,98.145,98.073165,1, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID101334114,"2,3-Dihydro-1H-indene-2-carbaldehyde",37414-44-1,KPTYDOSQASSERS-UHFFFAOYSA-N,"2,3-Dihydro-1H-indene-2-carbaldehyde",O=CC1CC2=C(C1)C=CC=C2,"InChI=1S/C10H10O/c11-7-8-5-9-3-1-2-4-10(9)6-8/h1-4,7-8H,5-6H2
+",C10H10O,146.189,146.073165,4, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID1020859,alpha-Methylbenzyl alcohol,98-85-1,WAPNOHKVXSQRPX-UHFFFAOYSA-N,1-Phenylethan-1-ol,CC(O)C1=CC=CC=C1,"InChI=1/C8H10O/c1-7(9)8-5-3-2-4-6-8/h2-7,9H,1H3
+",C8H10O,122.167,122.073165,1,0/234,234,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID1021328,Tetrahydrofuran,109-99-9,WYURNTSHIVDZCO-UHFFFAOYSA-N,Oxolane,C1CCOC1,"InChI=1S/C4H8O/c1-2-4-5-3-1/h1-4H2
+",C4H8O,72.107,72.057515,1,1/320,320,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID1021827,Cumene,98-82-8,RWGFKTVRMDUZSP-UHFFFAOYSA-N,(Propan-2-yl)benzene,CC(C)C1=CC=CC=C1,"InChI=1S/C9H12/c1-8(2)9-6-4-3-5-7-9/h3-8H,1-2H3
+",C9H12,120.195,120.093900,1,7/234,234,3
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID1022007,Butyl ether,142-96-1,DURPTKYDGMDSBL-UHFFFAOYSA-N,1-Butoxybutane,CCCCOCCCC,"InChI=1S/C8H18O/c1-3-5-7-9-8-6-4-2/h3-8H2,1-2H3
+",C8H18O,130.231,130.135765,1,1/234,234,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID1024097,2-Butoxyethanol,111-76-2,POAOYUHQDCAZBD-UHFFFAOYSA-N,2-Butoxyethan-1-ol,CCCCOCCO,"InChI=1S/C6H14O2/c1-2-3-5-8-6-4-7/h7H,2-6H2,1H3
+",C6H14O2,118.176,118.099380,1,2/575,575,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID1024621,Diethylene glycol dimethyl ether,111-96-6,SBZXBUIDTXKZTM-UHFFFAOYSA-N,1-Methoxy-2-(2-methoxyethoxy)ethane,COCCOCCOC,"InChI=1S/C6H14O3/c1-7-3-5-9-6-4-8-2/h3-6H2,1-2H3
+",C6H14O3,134.175,134.094294,1,66/580,580,11
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID1024912,Decalin,91-17-8,NNBZCPXTIHJBJL-UHFFFAOYSA-N,Decahydronaphthalene,C1CCC2CCCCC2C1,"InChI=1S/C10H18/c1-2-6-10-8-4-3-7-9(10)5-1/h9-10H,1-8H2
+",C10H18,138.254,138.140851,1,0/234,234,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID1026118,Tetralin,119-64-2,CXWXQJXEFPUFDZ-UHFFFAOYSA-N,"1,2,3,4-Tetrahydronaphthalene",C1CCC2=C(C1)C=CC=C2,"InChI=1S/C10H12/c1-2-6-10-8-4-3-7-9(10)5-1/h1-2,5-6H,3-4,7-8H2
+",C10H12,132.206,132.093900,1,2/344,344,1
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID1060429,4-Heptanol,589-55-9,YVBCULSIZWMTFY-UHFFFAOYSA-N,Heptan-4-ol,CCCC(O)CCC,"InChI=1S/C7H16O/c1-3-5-7(8)6-4-2/h7-8H,3-6H2,1-2H3
+",C7H16O,116.204,116.120115,2, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID10862510,"Furan, tetrahydro-​2,​5-​dimethyl-",1003-38-9,OXMIDRBAFOEOQT-UHFFFAOYSA-N,"2,5-Dimethyloxolane",CC1CCC(C)O1,"InChI=1/C6H12O/c1-5-3-4-6(2)7-5/h5-6H,3-4H2,1-2H3
+",C6H12O,100.161,100.088815,1, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID2026781,4-Methyl-2-pentanol,108-11-2,WVYWICLMDOOCFB-UHFFFAOYSA-N,4-Methylpentan-2-ol,CC(C)CC(C)O,"InChI=1/C6H14O/c1-5(2)4-6(3)7/h5-7H,4H2,1-3H3
+",C6H14O,102.177,102.104465,1,7/573,573,1
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID3021516,Methyl ethyl ketone,78-93-3,ZWEHNKRNPOVVGH-UHFFFAOYSA-N,Butan-2-one,CCC(C)=O,"InChI=1S/C4H8O/c1-3-4(2)5/h3H2,1-2H3
+",C4H8O,72.107,72.057515,1,1/328,328,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID3021720,Diethyl ether,60-29-7,RTZKZFJDLAIYFH-UHFFFAOYSA-N,Ethoxyethane,CCOCC,"InChI=1S/C4H10O/c1-3-5-4-2/h3-4H2,1-2H3
+",C4H10O,74.123,74.073165,1, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID30231562,Pent-4-en-1-ol,821-09-0,LQAVWYMTUMSFBE-UHFFFAOYSA-N,Pent-4-en-1-ol,OCCCC=C,"InChI=1S/C5H10O/c1-2-3-4-5-6/h2,6H,1,3-5H2
+",C5H10O,86.134,86.073165,2, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID3025469,Isopentyl alcohol,123-51-3,PHTQWCKDNZKARW-UHFFFAOYSA-N,3-Methylbutan-1-ol,CC(C)CCO,"InChI=1S/C5H12O/c1-5(2)3-4-6/h5-6H,3-4H2,1-2H3
+",C5H12O,88.15,88.088815,1,3/589,589,1
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID3025590,Methylcyclopentane,96-37-7,GDOPTJXRTPNYNR-UHFFFAOYSA-N,Methylcyclopentane,CC1CCCC1,"InChI=1S/C6H12/c1-6-4-2-3-5-6/h6H,2-5H2,1H3
+",C6H12,84.162,84.093900,1,6/234,234,3
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID3052721,Pentan-2-ol,6032-29-7,JYVLIDXNZAXMDK-UHFFFAOYSA-N,Pentan-2-ol,CCCC(C)O,"InChI=1/C5H12O/c1-3-4-5(2)6/h5-6H,3-4H2,1-2H3
+",C5H12O,88.15,88.088815,1, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID30893088,2-​Hexanol,626-93-7,QNVRIHYSUZMSGM-UHFFFAOYSA-N,Hexan-2-ol,CCCCC(C)O,"InChI=1/C6H14O/c1-3-4-5-6(2)7/h6-7H,3-5H2,1-2H3
+",C6H14O,102.177,102.104465,1, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID4020533,"1,4-Dioxane",123-91-1,RYHBNJHYFVUHQT-UHFFFAOYSA-N,"1,4-Dioxane",C1COCCO1,"InChI=1S/C4H8O2/c1-2-6-4-3-5-1/h1-4H2
+",C4H8O2,88.106,88.052429,1,0/234,234,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID4021894,Cyclohexanol,108-93-0,HPXRVTGHNJAIIH-UHFFFAOYSA-N,Cyclohexanol,OC1CCCCC1,"InChI=1S/C6H12O/c7-6-4-2-1-3-5-6/h6-7H,1-5H2
+",C6H12O,100.161,100.088815,1,4/579,579,1
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID4029143,2-Methylpentane,107-83-5,AFABGHUZZDYHJO-UHFFFAOYSA-N,2-Methylpentane,CCCC(C)C,"InChI=1S/C6H14/c1-4-5-6(2)3/h6H,4-5H2,1-3H3
+",C6H14,86.178,86.109550,1,3/234,234,1
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID4047593,alpha-Phellandrene,99-83-2,OGLDWXZKYODSOB-UHFFFAOYSA-N,"2-Methyl-5-(propan-2-yl)cyclohexa-1,3-diene",CC(C)C1CC=C(C)C=C1,"InChI=1/C10H16/c1-8(2)10-6-4-9(3)5-7-10/h4-6,8,10H,7H2,1-3H3
+",C10H16,136.238,136.125201,1,7/321,321,2
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID5020152,Benzyl alcohol,100-51-6,WVDDGKGOMKODPV-UHFFFAOYSA-N,Phenylmethanol,OCC1=CC=CC=C1,"InChI=1S/C7H8O/c8-6-7-4-2-1-3-5-7/h1-5,8H,6H2
+",C7H8O,108.14,108.057515,1,4/597,597,1
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID5021889,4-Methyl-2-pentanone,108-10-1,NTIZESTWPVYFNL-UHFFFAOYSA-N,4-Methylpentan-2-one,CC(C)CC(C)=O,"InChI=1S/C6H12O/c1-5(2)4-6(3)7/h5H,4H2,1-3H3
+",C6H12O,100.161,100.088815,1,0/319,319,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID5025023,Dicyclopentadiene,77-73-6,HECLRDQVFMWTQS-UHFFFAOYSA-N,"3a,4,7,7a-Tetrahydro-1H-4,7-methanoindene",C1C=CC2C3CC(C=C3)C12,"InChI=1/C10H12/c1-2-9-7-4-5-8(6-7)10(9)3-1/h1-2,4-5,7-10H,3,6H2
+",C10H12,132.206,132.093900,1,5/465,465,1
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID5039224,Acetaldehyde,75-07-0,IKHGUXGNUITLKF-UHFFFAOYSA-N,Acetaldehyde,CC=O,"InChI=1S/C2H4O/c1-2-3/h2H,1H3
+",C2H4O,44.053,44.026215,1,136/318,318,43
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID5073290,"Ethene, 1-chloro-1-fluoro-",2317-91-1,FPBWSPZHCJXUBL-UHFFFAOYSA-N,1-Chloro-1-fluoroethene,FC(Cl)=C,"InChI=1S/C2H2ClF/c1-2(3)4/h1H2
+",C2H2ClF,80.49,79.982906,2, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID6020646,Furan,110-00-9,YLQBMQCUIZJEEH-UHFFFAOYSA-N,Furan,O1C=CC=C1,"InChI=1S/C4H4O/c1-2-4-5-3-1/h1-4H
+",C4H4O,68.075,68.026215,1,0/234,234,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID6029171,Cyclopentene,142-29-0,LPIQUOYDBNQMRZ-UHFFFAOYSA-N,Cyclopentene,C1CC=CC1,"InChI=1S/C5H8/c1-2-4-5-3-1/h1-2H,3-5H2
+",C5H8,68.119,68.062600,1,8/209,209,4
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID6030607,Acetal,105-57-7,DHKHKXVYLBGOIT-UHFFFAOYSA-N,"1,1-Diethoxyethane",CCOC(C)OCC,"InChI=1S/C6H14O2/c1-4-7-6(3)8-5-2/h6H,4-5H2,1-3H3
+",C6H14O2,118.176,118.099380,1,0/234,234,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID70173038,5-Decyne,1942-46-7,JWBQJUFCNOLNNC-UHFFFAOYSA-N,Dec-5-yne,CCCCC#CCCCC,"InChI=1S/C10H18/c1-3-5-7-9-10-8-6-4-2/h3-8H2,1-2H3
+",C10H18,138.254,138.140851,2, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID7020762,Isopropanol,67-63-0,KFZMGEQAYNKOFK-UHFFFAOYSA-N,Propan-2-ol,CC(C)O,"InChI=1S/C3H8O/c1-3(2)4/h3-4H,1-2H3
+",C3H8O,60.096,60.057515,1,31/234,234,13
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID7022093,"2,5-Dimethylfuran",625-86-5,GSNUFIFRDBKVIE-UHFFFAOYSA-N,"2,5-Dimethylfuran",CC1=CC=C(C)O1,"InChI=1S/C6H8O/c1-5-3-4-6(2)7-5/h3-4H,1-2H3
+",C6H8O,96.129,96.057515,1,0/319,319,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID7024087,2-Ethoxyethanol,110-80-5,ZNQVEEAIQZEUHB-UHFFFAOYSA-N,2-Ethoxyethan-1-ol,CCOCCO,"InChI=1S/C4H10O2/c1-2-6-4-3-5/h5H,2-4H2,1H3
+",C4H10O2,90.122,90.068080,1,0/571,571,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID7052311,1-Ethoxybutane,628-81-9,PZHIWRCQKBBTOW-UHFFFAOYSA-N,1-Ethoxybutane,CCCCOCC,"InChI=1S/C6H14O/c1-3-5-6-7-4-2/h3-6H2,1-2H3
+",C6H14O,102.177,102.104465,1,2/196,196,1
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID80210645,Di-tert-butyl ether,6163-66-2,AQEFLFZSWDEAIP-UHFFFAOYSA-N,2-tert-Butoxy-2-methylpropane,CC(C)(C)OC(C)(C)C,"InChI=1S/C8H18O/c1-7(2,3)9-8(4,5)6/h1-6H3
+",C8H18O,130.231,130.135765,1, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID8021519,2-(2-Butoxyethoxy)ethanol,112-34-5,OAYXUHPQHDHDDZ-UHFFFAOYSA-N,2-(2-Butoxyethoxy)ethan-1-ol,CCCCOCCOCCO,"InChI=1S/C8H18O3/c1-2-3-5-10-7-8-11-6-4-9/h9H,2-8H2,1H3
+",C8H18O3,162.229,162.125594,1,3/578,578,1
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID8029608,Vinyl isobutyl ether,109-53-5,OZCMOJQQLBXBKI-UHFFFAOYSA-N,1-(Ethenyloxy)-2-methylpropane,CC(C)COC=C,"InChI=1S/C6H12O/c1-4-7-5-6(2)3/h4,6H,1,5H2,2-3H3
+",C6H12O,100.161,100.088815,1,6/234,234,3
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID8060036,"1,3-Butadiyne",460-12-8,LLCSWKVOHICRDD-UHFFFAOYSA-N,"Buta-1,3-diyne",C#CC#C,"InChI=1S/C4H2/c1-3-4-2/h1-2H
+",C4H2,50.06,50.015650,2, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID9021635,2-Methylpropanal,78-84-2,AMIMRNSIRUDHCM-UHFFFAOYSA-N,2-Methylpropanal,CC(C)C=O,"InChI=1S/C4H8O/c1-4(2)3-5/h3-4H,1-2H3
+",C4H8O,72.107,72.057515,1,8/320,320,3
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID9021762,2-Butanol,78-92-2,BTANRVKWQNVYAZ-UHFFFAOYSA-N,Butan-2-ol,CCC(C)O,"InChI=1/C4H10O/c1-3-4(2)5/h4-5H,3H2,1-2H3
+",C4H10O,74.123,74.073165,1,1/234,234,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID9021928,Ethylene glycol monoethyl ether acetate,111-15-9,SVONRAPFKPVNKG-UHFFFAOYSA-N,2-Ethoxyethyl acetate,CCOCCOC(C)=O,"InChI=1S/C6H12O3/c1-3-8-4-5-9-6(2)7/h3-5H2,1-2H3
+",C6H12O3,132.159,132.078644,1,2/596,596,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID9026342,2-Phenylethanol,60-12-8,WRMNZCZEMHIOCP-UHFFFAOYSA-N,2-Phenylethan-1-ol,OCCC1=CC=CC=C1,"InChI=1S/C8H10O/c9-7-6-8-4-2-1-3-5-8/h1-5,9H,6-7H2
+",C8H10O,122.167,122.073165,1,1/348,348,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID9030258,2-Methyltetrahydrofuran,96-47-9,JWUJQDFVADABEY-UHFFFAOYSA-N,2-Methyloxolane,CC1CCCO1,"InChI=1/C5H10O/c1-5-3-2-4-6-5/h5H,2-4H2,1H3
+",C5H10O,86.134,86.073165,1,4/234,234,2
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID9038717,Cyclohexene,110-83-8,HGCIXCUEYOPUTN-UHFFFAOYSA-N,Cyclohexene,C1CCC=CC1,"InChI=1S/C6H10/c1-2-4-6-5-3-1/h1-2H,3-6H2
+",C6H10,82.146,82.078250,1, 
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID9039232,Allyl glycidyl ether,106-92-3,LSWYGACWGAICNM-UHFFFAOYSA-N,2-{[(Prop-2-en-1-yl)oxy]methyl}oxirane,C=CCOCC1CO1,"InChI=1/C6H10O2/c1-2-3-7-4-6-5-8-6/h2,6H,1,3-5H2
+",C6H10O2,114.144,114.068080,1,0/234,234,0
+https://comptox.epa.gov/dashboard/chemical/details/DTXSID90870658,"3-Hexanol, 3-methyl-",597-96-6,KYWJZCSJMOILIZ-UHFFFAOYSA-N,3-Methylhexan-3-ol,CCCC(C)(O)CC,"InChI=1/C7H16O/c1-4-6-7(3,8)5-2/h8H,4-6H2,1-3H3
+",C7H16O,116.204,116.120115,2, 

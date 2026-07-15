@@ -1,0 +1,11 @@
+[Unit]
+Description=Run ELN peroxide former check twice a year (May 1 and Nov 1)
+
+[Timer]
+OnCalendar=*-05-01 09:00:00
+OnCalendar=*-11-01 09:00:00
+# catch up if the machine was off on the scheduled day
+Persistent=true
+
+[Install]
+WantedBy=timers.target

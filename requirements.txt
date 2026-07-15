@@ -1,0 +1,12 @@
+flask
+flask-cors
+gunicorn
+requests
+urllib3
+pandas
+pypdf
+tabulate
+pubchempy
+elabapi_python==5.6.0
+blabel
+rdkit

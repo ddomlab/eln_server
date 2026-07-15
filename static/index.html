@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+  <link rel="shortcut icon" href="/static/favicon.ico">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Inventory Manager</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap");
+
+      * {
+        font-family: "Roboto Mono", monospace;
+        box-sizing: border-box;
+      }
+
+      body {
+        display: flex;
+        flex-direction: row;
+        margin: 0;
+        height: 100vh;
+        background-color: #fdfdfd;
+        color: #111;
+      }
+
+      #registry {
+        width: 145px;
+        background-color: #ffffff;
+        border-right: 3px solid #000;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 100vh; /* Make sure it's full-height */
+        overflow: hidden;
+        box-shadow: 3px 0 6px rgba(0, 0, 0, 0.2);
+      }
+
+      #registry h2 {
+        font-size: 1em;
+        margin-top: 0;
+        font-weight: bold;
+        text-align: center;
+      }
+
+      #registry ul {
+        list-style-type: none;
+        padding-left: 0;
+        flex-grow: 1;
+        overflow-y: auto;
+        max-height: calc(
+          100vh - 100px
+        ); /* Adjust height to fit within the viewport */
+      }
+
+      #registry li {
+        padding: 6px;
+        background-color: #e6e6e6;
+        margin-bottom: 6px;
+        text-align: center;
+        border-radius: 4px;
+        font-size: 3em;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.2s, box-shadow 0.2s;
+      }
+
+      #registry li:hover {
+        background-color: #d0d0d0;
+        box-shadow: inset 0 0 0 2px #000;
+      }
+
+      #modeIndicator {
+        font-size: 0.9em;
+        text-align: center;
+        font-weight: bold;
+        color: #444;
+        margin: 10px 0 5px 0;
+      }
+
+      #main {
+        flex-grow: 1;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      #inputProcessor {
+        margin-bottom: 12px;
+        height: 32px;
+        font-size: 1em;
+        padding: 5px 8px;
+        border-radius: 2px;
+        border: 2px solid #333;
+        background: #fff;
+        color: #111;
+      }
+
+      #qrGrid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+
+      .qrItem {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        /* cursor: pointer; */
+      }
+
+      .qrWrapper {
+        padding: 12px;
+        border-radius: 0px;
+        background-color: #f2f2f2;
+        box-shadow: 0 0 0 2px #999, 4px 4px 0 #ccc;
+        transition: box-shadow 0.2s ease, background-color 0.2s ease;
+        cursor: pointer;
+      }
+
+      .qrWrapper:hover {
+        box-shadow: 0 0 0 2px #000, 6px 6px 0 #555;
+        background-color: #e8e8e8;
+      }
+
+      .qrWrapper.selected-batch {
+        background-color: #ffff99 !important;
+        box-shadow: 0 0 0 2px #000, 6px 6px 0 #333;
+      }
+
+      #popup {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #fff;
+        border: 3px solid #000;
+        padding: 40px;
+        border-radius: 8px;
+        box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.5);
+        display: none;
+        z-index: 1000;
+        text-align: center;
+      }
+
+      #popup h3 {
+        margin-top: 0;
+        font-weight: bold;
+      }
+
+      #popupGrid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        margin-top: 10px;
+      }
+
+      #popupClose {
+        margin-top: 15px;
+        text-align: center;
+        cursor: pointer;
+        color: #0077cc;
+        text-decoration: underline;
+        font-weight: bold;
+      }
+
+      #successPopup,
+      #unsuccessPopup {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 10px 16px;
+        border-radius: 4px;
+        color: white;
+        font-size: 0.95em;
+        z-index: 2000;
+        box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.3);
+        transition: opacity 0.5s ease;
+        display: none;
+      }
+
+      #successPopup {
+        background-color: #00aa00;
+        border: 2px solid #006600;
+      }
+
+      #unsuccessPopup {
+        background-color: #cc0000;
+        border: 2px solid #990000;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+  </head>
+  <body>
+    <div id="registry">
+      <div>
+        <h2>Registry</h2>
+        <ul id="registryList"></ul>
+      </div>
+      <div id="modeIndicator">Mode: Single</div>
+    </div>
+    <div id="main">
+      <input
+        type="text"
+        id="inputProcessor"
+        placeholder="Input Processor"
+        autofocus
+      />
+      <div id="qrGrid"></div>
+    </div>
+
+    <div id="popup">
+      <h3>Locations</h3>
+      <div id="popupGrid"></div>
+      <div id="popupClose">Close</div>
+    </div>
+    <div id="successPopup">Success!</div>
+    <div id="unsuccessPopup">Success!</div>
+    <div
+      id="experimentPrompt"
+      style="
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 20px;
+        border: 2px solid #ccc;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+        z-index: 1001;
+      "
+    >
+      <label for="experimentInput">Enter Experiment ID:</label>
+      <input
+        type="number"
+        id="experimentInput"
+        style="margin: 10px 0; width: 100%"
+      />
+      <div style="text-align: right">
+        <button onclick="submitExperiment()">Submit (or press [ENTER])</button>
+        <div id="cancelQr" onclick="cancelExperiment()" class="qrItem"></div>
+      </div>
+    </div>
+
+    <script>
+      function getCookie(name) {
+        const match = document.cookie
+          .split("; ")
+          .find((row) => row.startsWith(name + "="));
+        return match && decodeURIComponent(match.split("=")[1]);
+      }
+      const apiKey = getCookie("apiKey");
+      if (!apiKey) {
+        alert(
+          'API key not found. Please click "Add Resource", where you can find a textbox to enter your API key.'
+        );
+      }
+      const captions = [
+        //"Voice Mode",
+        "Clear",
+        "Batch",
+        "Add resource",
+        // "Change Location",
+        "Mark Open",
+        "Mark Empty",
+        "Print",
+        "Open Page",
+        //"Add Tag",
+        "Associate with Experiment",
+        "Custom Label"
+      ];
+      const qrGrid = document.getElementById("qrGrid");
+      const popupGrid = document.getElementById("popupGrid");
+      const inputProcessor = document.getElementById("inputProcessor");
+      const registryList = document.getElementById("registryList");
+      const modeIndicator = document.getElementById("modeIndicator");
+      const popup = document.getElementById("popup");
+      const popupClose = document.getElementById("popupClose");
+
+      let registryMode = "single";
+      let voiceMode = false;
+      let focusOnInput = true;
+      function clearRegistry() {
+        registryList.innerHTML = "";
+      }
+      function updateModeIndicator() {
+        highlightWrapperByCaption("Batch", registryMode === "batch");
+        modeIndicator.textContent = `Mode: ${
+          registryMode.charAt(0).toUpperCase() + registryMode.slice(1)
+        }`;
+      }
+      function beep(tone1, tone2, type) {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const aosc = ctx.createOscillator();
+        const eosc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        aosc.type = type;
+        eosc.type = type;
+        aosc.frequency.setValueAtTime(tone1, ctx.currentTime); // 880 Hz = A5 note
+        eosc.frequency.setValueAtTime(tone2, ctx.currentTime); // 1319 Hz = E6 note
+
+        gain.gain.setValueAtTime(0.2, ctx.currentTime); // Lower volume
+
+        eosc.connect(gain);
+        aosc.connect(gain);
+        gain.connect(ctx.destination);
+
+        eosc.start(ctx.currentTime + 0.15);
+        aosc.start();
+        aosc.stop(ctx.currentTime + 0.15); // 150ms beep
+        eosc.stop(ctx.currentTime + 0.3); // 150ms beep
+      }
+
+      function success(message = "Success!") {
+        const popup = document.getElementById("successPopup");
+        popup.textContent = message;
+        popup.style.display = "block";
+        popup.style.opacity = "1";
+
+        // const audio = new Audio("https://cdn.pixabay.com/download/audio/2021/08/04/audio_9b7b3c3f2e.mp3?filename=success-1-6297.mp3");
+        // audio.play();
+        beep(880, 1319, "sine");
+        setTimeout(() => {
+          popup.style.opacity = "0";
+        }, 1200);
+
+        setTimeout(() => {
+          popup.style.display = "none";
+        }, 1800);
+      }
+
+      function speak(text) {
+        if (!voiceMode) return;
+        const utterance = new SpeechSynthesisUtterance(text);
+        speechSynthesis.speak(utterance);
+      }
+
+      function error(errorMessage = "Failed!") {
+        const popup = document.getElementById("unsuccessPopup");
+        popup.textContent = errorMessage;
+        popup.style.display = "block";
+        popup.style.opacity = "1";
+        beep(440, 370, "square");
+        setTimeout(() => {
+          popup.style.opacity = "0";
+        }, 1200);
+        setTimeout(() => {
+          popup.style.display = "none";
+        }, 1800);
+      }
+
+      function addToRegistry(num) {
+        const existingItems = [...registryList.children];
+        const exists = existingItems.some((li) => li.textContent === num);
+        if (exists) {
+          existingItems.forEach((li) => {
+            if (li.textContent === num) {
+              li.remove();
+              if (!voiceMode) {
+                beep(380, 370, "square");
+              }
+              speak("removed");
+            }
+          });
+          return;
+        }
+        if (registryMode === "single") {
+          const occupied = registryList.innerHTML !== "";
+          clearRegistry();
+          if (occupied) {
+            speak("replaced");
+            if (!voiceMode) {
+              beep(440, 450, "sine");
+            }
+          }
+        }
+        const li = document.createElement("li");
+        li.textContent = num;
+        registryList.appendChild(li);
+      }
+
+      function handleInputSubmission(value) {
+        let val = value.trim().toLowerCase();
+        if (val.startsWith("https://eln.ddomlab.org/")) {
+          val = val.split("id=")[1];
+        }
+
+        if (val === "voice mode") {
+          voiceMode = !voiceMode;
+          speak("Voice mode " + (voiceMode ? "enabled" : "disabled"));
+          inputProcessor.value = "";
+          inputProcessor.focus();
+          return;
+        } else if (val === "clear") {
+          clearRegistry();
+          // success();
+        } else if (val === "batch") {
+          registryMode = registryMode === "single" ? "batch" : "single";
+          speak(registryMode);
+          updateModeIndicator();
+          if (registryMode === "single") {
+            clearRegistry();
+          }
+        } else if (val === "batch mode on") {
+          registryMode = "batch";
+          updateModeIndicator();
+          success();
+        } else if (val === "batch mode off") {
+          registryMode = "single";
+          // speak(registryMode);
+          updateModeIndicator();
+
+          clearRegistry();
+          success();
+        } else if (val === "add resource") {
+          window.location.href = "/add_resource_interface";
+        } else if (val === "custom label") {
+          window.location.href = "/label_gen_interface";
+        }
+        else if (val === "open page") {
+          const ids = [...registryList.children].map((li) => li.textContent);
+          if (ids.length === 0) {
+            error();
+          }
+          ids.forEach((id) => {
+            if (!isNaN(id) && id !== "") {
+              window.open(
+                `https://eln.ddomlab.org/database.php?mode=view&id=${id}`,
+                "_blank"
+              );
+            }
+          });
+        } else if (val === "print") {
+          const ids = [...registryList.children].map((li) => li.textContent);
+          fetch("/print", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ id: ids }),
+          })
+            .then((response) => {
+              if (!response.ok) {
+                error();
+                throw new Error("Print request failed");
+              }
+              // console.log("Print request sent");
+              return response.blob();
+            })
+            .then((blob) => {
+              const pdfUrl = URL.createObjectURL(blob);
+              window.open(pdfUrl, "_blank");
+            })
+            .catch((err) => {
+              console.error("Error sending print request:", err);
+            });
+        } else if (val === "mark open") {
+          const ids = [...registryList.children].map((li) => li.textContent);
+          fetch("/mark_open", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ id: ids }),
+          }).then(async (response) => {
+            if (!response.ok) {
+              const errorData = await response.json();
+              error(errorData.error);
+              // error();
+              // throw new Error("Failed, " + response.statusText );
+            } else {
+              success();
+            }
+          });
+        } else if (val === "mark empty") {
+          const ids = [...registryList.children].map((li) => li.textContent);
+          fetch("/mark_empty", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ id: ids }),
+          }).then((response) => {
+            if (!response.ok) {
+              error();
+              throw new Error("Failed");
+            } else {
+              success();
+            }
+          });
+        } else if (val === "associate with experiment") {
+          const ids = [...registryList.children].map((li) => li.textContent);
+          if (ids.length === 0) {
+            error();
+          } else {
+            showExperimentPrompt();
+          }
+        } else if (val === "add tag") {
+          const ids = [...registryList.children].map((li) => li.textContent);
+          return;
+        } else if (val === "change location") {
+          inputProcessor.value = "";
+          return;
+        } else if (val.includes("location=")) {
+          const loc = value.split("LOCATION=")[1];
+          const ids = [...registryList.children].map((li) => li.textContent);
+
+          // console.log("Changing location to:", location);
+          fetch("/change_location", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ id: ids , location : loc }),
+          })
+            .then((response) => {
+              if (!response.ok) {
+                error();
+                throw new Error("Failed to change location");
+              } else {
+                success("Location changed to: " + loc);
+                popup.style.display = "none";
+                if (focusOnInput) inputProcessor.focus();
+
+              }
+            })
+            .catch((err) => {
+              console.error(err);
+            });
+        }
+        else if (val.includes("subloc=")) {
+          const loc = value.split("SUBLOC=")[1];
+          const ids = [...registryList.children].map((li) => li.textContent);
+          fetch("/change_sublocation", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ id: ids , sublocation : loc }),
+          })
+            .then((response) => {
+              if (!response.ok) {
+                error();
+                throw new Error("Failed to change sublocation");
+              } else {
+                success("Sublocation comment added: " + loc);
+                popup.style.display = "none";
+                if (focusOnInput) inputProcessor.focus();
+
+              }
+            })
+            .catch((err) => {
+              console.error(err);
+            });
+        }else if (!isNaN(val) && val !== "") {
+          addToRegistry(val);
+        } else {
+          console.error("Invalid input:", value);
+          error("Invalid input. Please try again.");
+        }
+        inputProcessor.value = "";
+        if (focusOnInput) {
+          inputProcessor.focus();
+        }
+      }
+
+      function showExperimentPrompt() {
+        focusOnInput = false;
+        const input = document.getElementById("experimentInput");
+        input.value = "";
+        document.getElementById("experimentPrompt").style.display = "block";
+        input.addEventListener("keydown", experimentKeyListener);
+        renderQRCode(document.getElementById("cancelQr"), "CANCEL");
+        input.focus();
+      }
+      function experimentKeyListener(e) {
+        if (e.key === "Enter") {
+          submitExperiment();
+        }
+      }
+      function cancelExperiment() {
+        const input = document.getElementById("experimentInput");
+        input.removeEventListener("keydown", experimentKeyListener); // 🔧 Clean up
+        document.getElementById("experimentPrompt").style.display = "none";
+        document.getElementById("cancelQr").innerHTML = "";
+
+        focusOnInput = true;
+      }
+
+      function submitExperiment() {
+        const expId = document.getElementById("experimentInput").value;
+        if (!expId || isNaN(expId)) {
+          error();
+          cancelExperiment();
+          focusOnInput = true;
+          return;
+        }
+
+        const ids = [...registryList.children].map((li) => li.textContent);
+        if (ids.length === 0) {
+          error();
+          cancelExperiment();
+          focusOnInput = true;
+          return;
+        }
+
+        fetch("/associate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id: ids,
+            exp_id: expId,
+          }),
+        })
+          .then((response) => {
+            if (!response.ok) {
+              error();
+              throw new Error("Association failed");
+            } else {
+              exp_name = response.headers.get("exp_name");
+              success("Associated with experiment: " + exp_name);
+            }
+          })
+          .catch((err) => {
+            console.error(err);
+          })
+          .finally(() => {
+            cancelExperiment();
+          });
+      }
+
+      inputProcessor.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          handleInputSubmission(e.target.value);
+        }
+      });
+
+      function renderQRCode(container, caption, code=caption) {
+        const canvasWrapper = document.createElement("div");
+        canvasWrapper.className = "qrWrapper";
+        canvasWrapper.style.display = "inline-block"; // Shrinks to fit content
+        // canvasWrapper.style.margin = "10px"; // Adjust as needed
+
+        const canvas = document.createElement("canvas");
+        canvasWrapper.appendChild(canvas);
+        container.addEventListener("click", () => {
+          inputProcessor.value = code;
+          handleInputSubmission(code);
+        });
+        const label = document.createElement("div");
+        label.textContent = caption;
+
+        container.appendChild(canvasWrapper);
+        container.appendChild(label);
+
+        QRCode.toCanvas(canvas, code, { width: 128 }, (err) => {
+          if (err) console.error(err);
+        });
+      }
+      function highlightWrapperByCaption(targetCaption, isActive) {
+        // Find all qrItem containers
+        const qrItems = document.querySelectorAll(".qrItem");
+        qrItems.forEach((item) => {
+          const label = item.querySelector("div:last-child");
+          if (label && label.textContent === targetCaption) {
+            const wrapper = item.querySelector(".qrWrapper");
+            if (wrapper) {
+              wrapper.classList.toggle("selected-batch", isActive);
+            }
+          }
+        });
+      }
+     
+      captions.forEach((caption) => {
+        const container = document.createElement("div");
+        container.className = "qrItem";
+        qrGrid.appendChild(container);
+        renderQRCode(container, caption);
+
+        if (caption === "Change Location") {
+          container.addEventListener("click", () => {
+            // console.log("Clicked Change Location");
+
+            fetch("/get_locations", {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+              },
+            })
+              .then((response) => {
+                // console.log("Received response:", response);
+                return response.json();
+              })
+              .then((data) => {
+                // console.log("Parsed JSON data:", data);
+
+                const extraCaptions = data;
+                if (!Array.isArray(extraCaptions)) {
+                  console.error("Expected array but got:", extraCaptions);
+                  return;
+                }
+
+                // console.log("Extra captions:", extraCaptions);
+
+                popup.style.display = "block";
+                popupGrid.innerHTML = "";
+
+                extraCaptions.forEach((extra, index) => {
+                  const extraContainer = document.createElement("div");
+                  extraContainer.className = "qrItem";
+                  popupGrid.appendChild(extraContainer);
+                  renderQRCode(extraContainer, extra, `LOCATION=${extra}`);
+                });
+              })
+              .catch((error) => {
+                console.error("Error fetching extra captions:", error);
+              });
+          });
+        }
+      });
+
+      popupClose.addEventListener("click", () => {
+        popup.style.display = "none";
+        if (focusOnInput) inputProcessor.focus();
+      });
+
+      window.addEventListener("click", () => {
+        if (focusOnInput) {
+          inputProcessor.focus();
+        }
+      });
+
+      updateModeIndicator();
+    </script>
+  </body>
+</html>

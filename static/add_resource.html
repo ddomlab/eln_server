@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Material Form</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
+
+    * {
+      font-family: "Roboto Mono", monospace;
+      box-sizing: border-box;
+    }
+
+    body {
+      background-color: #fdfdfd;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: #111;
+    }
+
+    .form-wrapper {
+      position: relative;
+      background-color: #ffffff;
+      padding: 2em 3em;
+      border-radius: 0px;
+      border: 3px solid #000;
+      box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.4);
+      width: 100%;
+      max-width: 620px;
+    }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 1em;
+      font-size: 1.6em;
+      font-weight: bold;
+    }
+
+    .field {
+      margin-bottom: 1.5em;
+    }
+
+    label {
+      font-weight: 700;
+      display: block;
+      margin-bottom: 0.4em;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 0.6em 0.75em;
+      border: 2px solid #333;
+      border-radius: 0;
+      font-size: 1em;
+      background: #fff;
+      color: #111;
+      box-shadow: 2px 2px 0 #ccc;
+      transition: box-shadow 0.2s ease;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      box-shadow: 2px 2px 0 #555;
+      border-color: #000;
+    }
+
+    .unit {
+      margin-left: 0.5em;
+      font-size: 0.9em;
+      color: #444;
+    }
+
+    .description {
+      font-size: 0.85em;
+      color: #666;
+      margin-top: 0.3em;
+    }
+
+    button[type="submit"] {
+      display: block;
+      width: 100%;
+      padding: 0.9em;
+      background-color: #000;
+      color: #fff;
+      font-weight: bold;
+      border: 2px solid #000;
+      border-radius: 0;
+      font-size: 1em;
+      cursor: pointer;
+      box-shadow: 3px 3px 0 #888;
+      transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease;
+    }
+
+    button[type="submit"]:hover {
+      background-color: #333;
+      box-shadow: 3px 3px 0 #444;
+    }
+
+    #qr-button {
+      position: absolute;
+      top: 1em;
+      left: 1em;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    #qr-go-back {
+      box-shadow: 2px 2px 0 #bbb, 0 0 0 2px #999;
+      padding: 4px;
+      background-color: #f2f2f2;
+      transition: box-shadow 0.2s ease, background-color 0.2s ease;
+    }
+
+    #qr-button:hover #qr-go-back {
+      background-color: #e8e8e8;
+      box-shadow: 3px 3px 0 #444, 0 0 0 2px #000;
+    }
+
+    #qr-button div:last-child {
+      font-size: 0.9em;
+      margin-top: 0.3em;
+      font-weight: bold;
+      color: #111;
+    }
+  </style>
+</head>
+<body>
+  <div class="form-wrapper">
+    <h2>Resource Entry Form</h2>
+    <!-- horizontal line  -->
+    <hr style="border: 0px solid #000; margin-bottom: 1.5em;">
+    <form id="generated-form"></form>
+
+    <!-- Top-left QR code button -->
+    <div id="qr-button">
+      <div id="qr-go-back"></div>
+      <div>Go Back</div>
+    </div>
+  </div>
+
+  <!-- Form Generation Javascript-->
+  <script src="static/render_form.js"></script>
+
+  <!-- Listens for "$" key to go back to main page -->
+  <script>
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "$") {
+        console.log("Special trigger detected");
+        window.location.href = "/";
+      }
+    });
+  </script>
+
+  <!-- QR code generator library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    new QRCode(document.getElementById("qr-go-back"), {
+      text: "$",
+      width: 80,
+      height: 80,
+      correctLevel: QRCode.CorrectLevel.H,
+    });
+
+    document.getElementById("qr-button").addEventListener("click", () => {
+      window.location.href = "/";
+    });
+  </script>
+</body>
+</html>

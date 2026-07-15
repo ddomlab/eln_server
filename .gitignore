@@ -1,0 +1,18 @@
+# secrets -- never commit these
+api_key
+slack_bot_token
+
+# generated output
+static/print.pdf
+*.pyc
+__pycache__/
+
+# python packaging
+*.egg-info/
+build/
+dist/
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
