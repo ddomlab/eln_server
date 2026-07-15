@@ -40,7 +40,8 @@ class Resource_Manager:
     def create_item(self, category: int, body_dict: dict[str, Any]) -> int:
         """
         Creates an item in the ELN with the given category and body_dict.
-            :param int category: The category ID of the itme to be created. {1:Instument,2:Chemical Compound,3:Polymer,4:Solution}
+            :param int category: The resource category ID of the item to be created.
+                Category IDs are team-specific; list them with get_items_types().
             :param dict body_dict: The body of the item to be created.
             :return: The ID of the newly created item.
         """
@@ -185,6 +186,13 @@ class Resource_Manager:
             + "/items_types"
         )
         return requests.get(url, headers=self.header).json()
+
+    def get_items_statuses(self) -> list[dict[str, Any]]:
+        """
+        Gets the team's resource status list from the ELN.
+            :return: A list of dictionaries with {id, title, color, ...} per status.
+        """
+        return self.get_url("/teams/current/items_status").json()
 
     def get_items(self, size:int=15) -> list[object]:
         """

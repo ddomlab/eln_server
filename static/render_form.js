@@ -1,6 +1,8 @@
 const BASE_URL = ""; // adjust as needed
 const formEl = document.getElementById("generated-form");
 let currentFields = [];
+let elnWebUrl = ""; // the lab's eLabFTW web UI, served by /eln_config
+let resourceCategories = []; // [{id, title}] from /categories (the team's own list)
 
 function setCookie(name, value) {
   const expires = "Fri, 31 Dec 9999 23:59:59 GMT";
@@ -49,7 +51,10 @@ function buildFormFromJson(jsonData) {
   const apiKey = getCookie("apiKey");
   if (!apiKey) {
     alert(
-      "No API key found. Please paste an API key to continue. To generate your own, navigate to https://eln.ddomlab.org/ucp.php?tab=3"
+      "No API key found. Please paste an API key to continue. To generate your own, navigate to " +
+        (elnWebUrl
+          ? `${elnWebUrl}/ucp.php?tab=3`
+          : "the API keys tab of your eLabFTW user settings")
     );
     const wrapper = document.createElement("div");
     wrapper.className = "field";
@@ -93,14 +98,12 @@ function buildFormFromJson(jsonData) {
   placeholder.hidden = true;
   placeholder.textContent = "Select a category";
   categorySelect.append(placeholder);
-  ["Instrument", "Chemical Compound", "Polymer", "Solution"].forEach(
-    (opt, i) => {
-      const o = document.createElement("option");
-      o.value = i + 1;
-      o.textContent = opt;
-      categorySelect.append(o);
-    }
-  );
+  resourceCategories.forEach((cat) => {
+    const o = document.createElement("option");
+    o.value = cat.id;
+    o.textContent = cat.title;
+    categorySelect.append(o);
+  });
   categorySelect.value = jsonData.category || "";
   categorySelect.addEventListener("change", () => {
     const selected = categorySelect.value;
@@ -367,7 +370,21 @@ function buildFormFromJson(jsonData) {
   };
 }
 
-// Initial load
-fetchTemplate()
+// Initial load: learn the instance's web URL and category list first
+Promise.all([
+  fetch(`${BASE_URL}/eln_config`)
+    .then((res) => (res.ok ? res.json() : {}))
+    .then((cfg) => {
+      elnWebUrl = cfg.eln_web_url || "";
+    })
+    .catch(() => {}),
+  fetch(`${BASE_URL}/categories`)
+    .then((res) => (res.ok ? res.json() : []))
+    .then((cats) => {
+      resourceCategories = Array.isArray(cats) ? cats : [];
+    })
+    .catch(() => {}),
+])
+  .then(() => fetchTemplate())
   .then(buildFormFromJson)
   .catch((e) => alert(e.message));

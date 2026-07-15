@@ -22,6 +22,21 @@
         color: #111;
       }
 
+      #settingsLink {
+        position: fixed;
+        bottom: 12px;
+        right: 12px;
+        color: #555;
+        z-index: 1000;
+        line-height: 0;
+      }
+
+      #settingsLink:hover {
+        color: #000;
+        transform: rotate(20deg);
+        transition: transform 0.15s ease;
+      }
+
       #registry {
         width: 145px;
         background-color: #ffffff;
@@ -193,6 +208,12 @@
     <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
   </head>
   <body>
+    <a id="settingsLink" href="/settings_interface" title="Server settings (set your API key here)" aria-label="Settings">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </a>
     <div id="registry">
       <div>
         <h2>Registry</h2>
@@ -254,7 +275,7 @@
       const apiKey = getCookie("apiKey");
       if (!apiKey) {
         alert(
-          'API key not found. Please click "Add Resource", where you can find a textbox to enter your API key.'
+          "API key not found. Please click the gear icon in the bottom-right corner and enter your API key on the settings page."
         );
       }
       const captions = [
@@ -282,6 +303,13 @@
       let registryMode = "single";
       let voiceMode = false;
       let focusOnInput = true;
+      let elnWebUrl = ""; // the lab's eLabFTW web UI, served by /eln_config
+      fetch("/eln_config")
+        .then((res) => (res.ok ? res.json() : {}))
+        .then((cfg) => {
+          elnWebUrl = cfg.eln_web_url || "";
+        })
+        .catch(() => {});
       function clearRegistry() {
         registryList.innerHTML = "";
       }
@@ -384,7 +412,9 @@
 
       function handleInputSubmission(value) {
         let val = value.trim().toLowerCase();
-        if (val.startsWith("https://eln.ddomlab.org/")) {
+        // scanned QR codes hold a link to the item's eLN page; accept them
+        // from any eLabFTW instance rather than one hardcoded domain
+        if (val.startsWith("http") && val.includes("id=")) {
           val = val.split("id=")[1];
         }
 
@@ -426,9 +456,9 @@
             error();
           }
           ids.forEach((id) => {
-            if (!isNaN(id) && id !== "") {
+            if (!isNaN(id) && id !== "" && elnWebUrl) {
               window.open(
-                `https://eln.ddomlab.org/database.php?mode=view&id=${id}`,
+                `${elnWebUrl}/database.php?mode=view&id=${id}`,
                 "_blank"
               );
             }

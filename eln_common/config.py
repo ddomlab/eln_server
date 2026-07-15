@@ -45,9 +45,56 @@ def get_secret(name: str) -> str | None:
     return str(value).strip() if value else None
 
 
-## CONFIGURATION VARIABLES (from config.yaml at the repo root; defaults below) ##
-URL = _cfg.get("eln_url", "https://eln.ddomlab.org/api/v2")
+def _require(key: str) -> str:
+    """Fetch a config value that has no sensible lab-agnostic default."""
+    value = _cfg.get(key)
+    if not value:
+        raise ValueError(f"'{key}' must be set in {CONFIG_PATH}")
+    return str(value)
+
+
+## CONFIGURATION VARIABLES (from config.yaml at the repo root) ##
+# The instance URLs are deliberately not defaulted: every lab must point the
+# server at its own eLabFTW before anything runs.
+URL = _require("eln_url").rstrip("/")
+WEB_URL = _require("eln_web_url").rstrip("/")
 PRINTER_PATH = _path(_cfg.get("printer_path", "/tmp/label.pdf"))
+
+
+def item_web_url(item_id) -> str:
+    """Link to a resource's page in the eLabFTW web UI."""
+    return f"{WEB_URL}/database.php?mode=view&id={item_id}"
+
+
+# Team-specific status/category IDs (see config.yaml for how to look them up).
+# Re-read from config.yaml on every call — unlike the startup constants above —
+# so changes made via the web settings page apply to all gunicorn workers
+# without a restart.
+def setting(key: str, default):
+    return _load_config_file().get(key, default)
+
+
+def update_settings(values: dict) -> None:
+    """Rewrite the given top-level keys in config.yaml in place, appending any
+    that are missing. Line-based on purpose: a yaml round-trip would drop the
+    file's comments."""
+    def render(v) -> str:
+        if isinstance(v, list):
+            return "[" + ", ".join(str(x) for x in v) + "]"
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        return str(v)
+
+    lines = CONFIG_PATH.read_text().splitlines() if CONFIG_PATH.exists() else []
+    for key, value in values.items():
+        new_line = f"{key}: {render(value)}"
+        for i, line in enumerate(lines):
+            if line.startswith(f"{key}:"):
+                lines[i] = new_line
+                break
+        else:
+            lines.append(new_line)
+    CONFIG_PATH.write_text("\n".join(lines) + "\n")
 # Legacy feature: /print used to fetch a label.pdf stored on each resource, so
 # autofill uploaded one to every new item. /print now generates labels on the
 # fly, making the uploads redundant; set auto_upload_labels: true in

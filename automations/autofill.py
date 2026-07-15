@@ -46,7 +46,7 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
     # only made when ELN_AUTO_UPLOAD_LABELS is set (see eln_common/config.py).
     if label and config.AUTO_UPLOAD_LABELS:
         create_and_upload_labels(rm, id)
-    if type == 2 or type == 3:  # limits to only polymers and compounds
+    if type in config.setting("chemical_categories", [2, 3]):  # only chemical-like categories get info/images
         metadata = json.loads(item["metadata"])
         # check if the item has been autofilled already, or if force is true
         if (item["tags"] is None or "Autofilled" not in item["tags"] or force) and not rm.is_item_busy(id):
@@ -56,16 +56,16 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
                     rm.add_tag(id, "Autofilled")
                 except ValueError as e:
                     if "Null molecule" in str(e):
-                        slackbot.send_message(f"Invalid SMILES provided in SMILES field for item {id}. See https://eln.ddomlab.org/database.php?mode=view&id={id}")
+                        slackbot.send_message(f"Invalid SMILES provided in SMILES field for item {id}. See {config.item_web_url(id)}")
                     if item["tags"] is None or "Not In PubChem" not in item["tags"]:
                         rm.add_tag(id, "Not In PubChem")
                         print(str(e))
                         if "No compound" in str(e):
                             print(f"No compound found for item {id}")
-                            slackbot.send_message(f"No compound found in PubChem for item {id}. See https://eln.ddomlab.org/database.php?mode=view&id={id}")
+                            slackbot.send_message(f"No compound found in PubChem for item {id}. See {config.item_web_url(id)}")
                         elif "Multiple compounds" in str(e):
                             print(f"Multiple compounds found for item {id}")
-                            slackbot.send_message(f"Multiple compounds found in PubChem for item {id}. Manual addition of chemical properties required. See https://eln.ddomlab.org/database.php?mode=view&id={id}")
+                            slackbot.send_message(f"Multiple compounds found in PubChem for item {id}. Manual addition of chemical properties required. See {config.item_web_url(id)}")
             if image:
                 try:
                     smiles: str = metadata["extra_fields"]["SMILES"]["value"]
@@ -88,7 +88,6 @@ def autofill_item(rm: Resource_Manager, id: int, force=False, info=True, label=T
 def autofill(rm: Resource_Manager, start=300, end=None, force=False, info=True, label=True, image=True, size=5):
     """
     This method controls which functions are called and handles deciding which items to autofill.
-    See: https://ddomlab.slite.com/api/s/057qvutxPk1Tx-/ELN-Backend-Scripts
     The start and end parameters can be used to edit a certain range of items.
     This is not necessary in typical use, when the method is run automatically on
     the 5 most recently created items, and only if their ID is greater than 300,

@@ -37,8 +37,13 @@ The Slack bot token is server-side: set `slack_bot_token` in `secrets.yaml`.
 ## Configuration
 
 Server settings live in `config.yaml` at the repo root (relative paths resolve
-from there): `eln_url`, `printer_path`, and `auto_upload_labels`. If the file
-is missing, the defaults shown in it (and in `eln_common/config.py`) apply.
+from there): the instance URLs (`eln_url`, `eln_web_url` — required),
+`printer_path`, `auto_upload_labels`, and the team-specific status/category
+IDs (`status_open`, `status_empty`, `chemical_categories`,
+`label_date_categories`). The ID settings can also be set from dropdowns at
+`/settings_interface`, which reads your team's actual lists from the eLabFTW
+API and writes the choices back to `config.yaml`; instructions for looking the
+IDs up manually are in the file's comments.
 
 Secrets are kept separately in a gitignored `secrets.yaml` at the repo root —
 copy `secrets.example.yaml` and fill in `eln_api_key` (scripts only) and

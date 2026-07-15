@@ -32,6 +32,9 @@ class TestBasicRoutes:
     def test_label_gen_interface(self, client):
         assert client.get("/label_gen_interface").status_code == 200
 
+    def test_settings_interface(self, client):
+        assert client.get("/settings_interface").status_code == 200
+
     def test_404_handler_reports_path(self, client):
         resp = client.get("/definitely_not_a_route")
         assert resp.status_code == 404
@@ -161,6 +164,75 @@ class TestConfig:
             config.PROJECT_ROOT / "eln_common" / "api_key"
         )
         assert config._path("/tmp/label.pdf") == "/tmp/label.pdf"
+
+    def test_urls_are_required(self, monkeypatch):
+        """The instance URLs have no lab-agnostic default; an unset key errors."""
+        import eln_common.config as config
+
+        monkeypatch.setattr(config, "_cfg", {})
+        with pytest.raises(ValueError, match="eln_url"):
+            config._require("eln_url")
+        with pytest.raises(ValueError, match="eln_web_url"):
+            config._require("eln_web_url")
+
+    def test_item_web_url(self):
+        import eln_common.config as config
+
+        assert config.item_web_url(393) == f"{config.WEB_URL}/database.php?mode=view&id=393"
+        assert not config.WEB_URL.endswith("/")
+
+    def test_eln_config_endpoint_serves_web_url(self, client):
+        import eln_common.config as config
+
+        resp = client.get("/eln_config")
+        assert resp.status_code == 200
+        assert resp.get_json() == {"eln_web_url": config.WEB_URL}
+
+
+class TestTeamIdSettings:
+    """The team-specific status/category IDs configured in config.yaml."""
+
+    def test_update_settings_rewrites_values_and_keeps_comments(self, monkeypatch, tmp_path):
+        import eln_common.config as config
+
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "# a load-bearing comment\n"
+            "status_open: 4\n"
+            "chemical_categories: [2, 3]\n"
+        )
+        monkeypatch.setattr(config, "CONFIG_PATH", cfg)
+
+        config.update_settings({"status_open": 7, "chemical_categories": [5], "status_empty": 9})
+        text = cfg.read_text()
+        assert "# a load-bearing comment" in text
+        assert "status_open: 7" in text
+        assert "chemical_categories: [5]" in text
+        assert "status_empty: 9" in text  # missing keys get appended
+
+        # setting() re-reads the file, so the new values are immediately visible
+        assert config.setting("status_open", 4) == 7
+        assert config.setting("chemical_categories", []) == [5]
+        assert config.setting("not_a_key", "fallback") == "fallback"
+
+    def test_get_settings_endpoint(self, client):
+        resp = client.get("/settings")
+        assert resp.status_code == 200
+        settings = resp.get_json()
+        assert set(settings) == {
+            "status_open", "status_empty", "chemical_categories", "label_date_categories"
+        }
+        assert isinstance(settings["status_open"], int)
+        assert isinstance(settings["chemical_categories"], list)
+
+    def test_post_settings_requires_key(self, client):
+        resp = client.post("/settings", json={"status_open": 4})
+        assert resp.status_code == 401
+
+    @pytest.mark.parametrize("route", ["/categories", "/statuses"])
+    def test_list_endpoints_require_key(self, client, route):
+        resp = client.get(route)
+        assert resp.status_code == 401
 
 
 class TestSecrets:

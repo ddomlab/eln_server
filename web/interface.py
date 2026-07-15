@@ -6,6 +6,7 @@ from flask import Blueprint, current_app, jsonify, request, send_from_directory
 from flask_cors import cross_origin
 
 import automations.autofill as autofill
+import eln_common.config as config
 from eln_common.resourcemanage import Resource_Manager
 import web.label_creating as label_creating
 import web.print_handling as print_handling
@@ -30,6 +31,13 @@ def ping():
     return "pong", 200
 
 
+@interface_bp.route('/eln_config', methods=['GET'])
+def eln_config():
+    """Non-secret instance settings the static web UI needs (e.g. where the
+    eLabFTW web interface lives, for building/recognizing resource links)."""
+    return jsonify({"eln_web_url": config.WEB_URL})
+
+
 @interface_bp.route("/add_resource_interface")
 def add_resource_interface():
     return send_from_directory(current_app.static_folder, "add_resource.html")  # type: ignore
@@ -38,6 +46,73 @@ def add_resource_interface():
 @interface_bp.route("/label_gen_interface")
 def label_gen_interface():
     return send_from_directory(current_app.static_folder, "label_gen.html")  # type: ignore
+
+
+@interface_bp.route("/settings_interface")
+def settings_interface():
+    return send_from_directory(current_app.static_folder, "settings.html")  # type: ignore
+
+
+@interface_bp.route('/categories', methods=['GET'])
+@cross_origin(origins="http://localhost:8000")
+def get_categories():
+    """The team's resource categories as [{id, title}], for UI dropdowns."""
+    try:
+        types = rm().get_items_types()
+        return jsonify([{"id": t["id"], "title": t["title"]} for t in types])
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 400
+
+
+@interface_bp.route('/statuses', methods=['GET'])
+@cross_origin(origins="http://localhost:8000")
+def get_statuses():
+    """The team's resource statuses as [{id, title}], for UI dropdowns."""
+    try:
+        statuses = rm().get_items_statuses()
+        return jsonify([{"id": s["id"], "title": s["title"]} for s in statuses])
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 400
+
+
+# the team-ID settings that the web settings page may change, with their coercers
+SETTINGS_SCHEMA = {
+    "status_open": int,
+    "status_empty": int,
+    "chemical_categories": lambda v: [int(x) for x in v],
+    "label_date_categories": lambda v: [int(x) for x in v],
+}
+
+
+@interface_bp.route('/settings', methods=['GET', 'POST'])
+@cross_origin(origins="http://localhost:8000")
+def settings():
+    """GET: the current team-ID settings. POST: update them in config.yaml
+    (requires a working eLabFTW API key, since this changes server behavior)."""
+    defaults = {"status_open": 4, "status_empty": 5,
+                "chemical_categories": [2, 3], "label_date_categories": [2, 3, 4]}
+    if request.method == 'GET':
+        return jsonify({k: config.setting(k, d) for k, d in defaults.items()})
+
+    try:
+        if not isinstance(rm().get_items_types(), list):
+            raise ValueError("API key was not accepted by the ELN")
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+
+    data = request.get_json(force=True)
+    try:
+        updates = {k: SETTINGS_SCHEMA[k](data[k]) for k in SETTINGS_SCHEMA if k in data}
+    except (TypeError, ValueError) as e:
+        return jsonify({"status": "error", "error": f"Invalid value: {e}"}), 400
+    if not updates:
+        return jsonify({"status": "error", "error": "No known settings in request"}), 400
+    config.update_settings(updates)
+    return jsonify({"status": "ok", "updated": updates})
 
 
 @interface_bp.route('/create_label', methods=['POST'])
@@ -52,7 +127,7 @@ def create_label():
     height = data.get('Height', 18)
 
     if qr_type == "Resource":
-        qr_content = "https://eln.ddomlab.org/database.php?mode=view&id=" + str(qr_content)
+        qr_content = config.item_web_url(qr_content)
     if icon == "QR Code":
         icon = None
     if icon == "None":
@@ -132,7 +207,7 @@ def mark_open():
         if metadata["extra_fields"]["Opened"]["value"] != "":
             return jsonify({"error": f"Item {id} already marked as opened on {metadata['extra_fields']['Opened']['value']}"}), 400
         metadata["extra_fields"]["Opened"]["value"] = datetime.now().isoformat()[:10]
-        rmn.change_item(id, {"metadata": json.dumps(metadata), "status": 4})
+        rmn.change_item(id, {"metadata": json.dumps(metadata), "status": config.setting("status_open", 4)})
     return "Success", 200
 
 
@@ -150,7 +225,7 @@ def change_location():
         body = rmn.get_item(id)
         metadata = json.loads(body["metadata"])
         metadata["extra_fields"]["Location"]["value"] = data.get('location', "")
-        rmn.change_item(id, {"metadata": json.dumps(metadata), "status": 4})
+        rmn.change_item(id, {"metadata": json.dumps(metadata), "status": config.setting("status_open", 4)})
     return "Success", 200
 
 
@@ -165,7 +240,7 @@ def mark_empty():
     if not isinstance(ids, list):
         return jsonify({"error": "Expected a list of IDs"}), 400
     for id in ids:
-        rmn.change_item(id, {"status": 5})
+        rmn.change_item(id, {"status": config.setting("status_empty", 5)})
     return "Success", 200
 
 
@@ -176,7 +251,13 @@ def get_template():
     if cat is None:
         return jsonify({})
     try:
-        return rm().get_items_types()[int(cat) - 1]
+        # match on the category's id -- list position is not stable across
+        # instances (or across deleting/reordering categories)
+        types = rm().get_items_types()
+        template = next((t for t in types if int(t["id"]) == int(cat)), None)
+        if template is None:
+            return jsonify({"status": "error", "error": f"No resource category with id {cat}"}), 404
+        return template
     except Exception as e:
         print("Error initializing Resource_Manager:", e)
         return jsonify({"status": "error", "error": str(e)}), 400

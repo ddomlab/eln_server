@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ELN Server Settings</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
+    body {
+      font-family: "Roboto Mono", monospace;
+      max-width: 640px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      background: #fafafa;
+      color: #222;
+    }
+    h1 { font-size: 1.3rem; }
+    p.hint { font-size: 0.8rem; color: #555; }
+    .field { margin-bottom: 1.2rem; }
+    label { display: block; font-weight: 700; margin-bottom: 0.3rem; }
+    .field small { display: block; color: #555; margin-bottom: 0.3rem; }
+    select, input[type="text"] {
+      font-family: inherit;
+      width: 100%;
+      padding: 0.4rem;
+      border: 1px solid #999;
+      border-radius: 4px;
+      background: #fff;
+    }
+    select[multiple] { height: 7em; }
+    button {
+      font-family: inherit;
+      font-weight: 700;
+      padding: 0.5rem 1.5rem;
+      border: 1px solid #222;
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+    }
+    button:hover { background: #eee; }
+    a.back {
+      display: inline-block;
+      margin-bottom: 1rem;
+      color: #222;
+      text-decoration: none;
+      font-weight: 700;
+    }
+    a.back:hover { text-decoration: underline; }
+    #result { margin-top: 1rem; font-size: 0.85rem; white-space: pre-wrap; }
+    #result.ok { color: #1a7a1a; }
+    #result.error { color: #b00020; }
+  </style>
+</head>
+<body>
+  <a class="back" href="/">&larr; Back to Inventory Manager</a>
+  <h1>ELN Server Settings</h1>
+  <p class="hint">
+    Maps this server's actions onto your team's eLabFTW status and resource
+    category IDs. Choices are read live from your instance and saved to the
+    server's <code>config.yaml</code>. Hold Ctrl/Cmd to select multiple
+    categories.
+  </p>
+
+  <div class="field">
+    <label for="apiKey">API Key</label>
+    <small>Used to read the lists below and to authorize saving.</small>
+    <input type="text" id="apiKey" placeholder="paste your eLabFTW API key" />
+  </div>
+
+  <div class="field">
+    <label for="status_open">"Opened" status</label>
+    <small>Applied when a resource is marked open or its location changes.</small>
+    <select id="status_open"></select>
+  </div>
+
+  <div class="field">
+    <label for="status_empty">"Empty" status</label>
+    <small>Applied when a resource is marked empty.</small>
+    <select id="status_empty"></select>
+  </div>
+
+  <div class="field">
+    <label for="chemical_categories">Chemical categories</label>
+    <small>Resource categories that get PubChem info and an RDKit structure image on autofill.</small>
+    <select id="chemical_categories" multiple></select>
+  </div>
+
+  <div class="field">
+    <label for="label_date_categories">Label date categories</label>
+    <small>Resource categories whose printed labels show a "Received" date.</small>
+    <select id="label_date_categories" multiple></select>
+  </div>
+
+  <button id="save">Save</button>
+  <div id="result"></div>
+
+  <script>
+    function setCookie(name, value) {
+      document.cookie = `${name}=${encodeURIComponent(value)}; expires=Fri, 31 Dec 9999 23:59:59 GMT; path=/`;
+    }
+    function getCookie(name) {
+      const match = document.cookie.split("; ").find((row) => row.startsWith(name + "="));
+      return match && decodeURIComponent(match.split("=")[1]);
+    }
+
+    const apiKeyInput = document.getElementById("apiKey");
+    const result = document.getElementById("result");
+    const statusSelects = ["status_open", "status_empty"];
+    const categorySelects = ["chemical_categories", "label_date_categories"];
+
+    function report(message, ok) {
+      result.textContent = message;
+      result.className = ok ? "ok" : "error";
+    }
+
+    function fillSelect(id, options, selected) {
+      const select = document.getElementById(id);
+      select.innerHTML = "";
+      options.forEach((opt) => {
+        const o = document.createElement("option");
+        o.value = opt.id;
+        o.textContent = `${opt.title} (id ${opt.id})`;
+        select.append(o);
+      });
+      const values = Array.isArray(selected) ? selected : [selected];
+      [...select.options].forEach((o) => {
+        o.selected = values.includes(parseInt(o.value, 10));
+      });
+    }
+
+    function load() {
+      const headers = { Authorization: apiKeyInput.value.trim() };
+      Promise.all([
+        fetch("/statuses", { headers }).then((r) => r.json()),
+        fetch("/categories", { headers }).then((r) => r.json()),
+        fetch("/settings").then((r) => r.json()),
+      ])
+        .then(([statuses, categories, settings]) => {
+          if (!Array.isArray(statuses) || !Array.isArray(categories)) {
+            throw new Error(
+              (statuses && statuses.error) || (categories && categories.error) ||
+              "Could not load lists from the ELN -- check the API key."
+            );
+          }
+          statusSelects.forEach((id) => fillSelect(id, statuses, settings[id]));
+          categorySelects.forEach((id) => fillSelect(id, categories, settings[id]));
+          report("Loaded current settings.", true);
+        })
+        .catch((e) => report(e.message, false));
+    }
+
+    apiKeyInput.addEventListener("change", () => {
+      setCookie("apiKey", apiKeyInput.value.trim());
+      load();
+    });
+
+    document.getElementById("save").addEventListener("click", () => {
+      const body = {};
+      statusSelects.forEach((id) => {
+        body[id] = parseInt(document.getElementById(id).value, 10);
+      });
+      categorySelects.forEach((id) => {
+        body[id] = [...document.getElementById(id).selectedOptions].map((o) =>
+          parseInt(o.value, 10)
+        );
+      });
+      fetch("/settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: apiKeyInput.value.trim(),
+        },
+        body: JSON.stringify(body),
+      })
+        .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok) throw new Error(data.error || "Save failed");
+          report("Saved: " + JSON.stringify(data.updated), true);
+        })
+        .catch((e) => report(e.message, false));
+    });
+
+    // initial load, reusing the key the other pages store as a cookie
+    apiKeyInput.value = getCookie("apiKey") || "";
+    load();
+  </script>
+</body>
+</html>

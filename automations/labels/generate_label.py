@@ -1,4 +1,5 @@
 from blabel import LabelWriter
+import eln_common.config as config
 from eln_common.resourcemanage import Resource_Manager
 import json
 from pathlib import Path
@@ -18,10 +19,9 @@ class LabelGenerator:
 
     def add_item(self, id: int):
         item: dict = self.rm.get_item(id)
-        date = ""
-        if item["category"] == 1:
-            date = None  # making date = None trips the if statement in the label.html file. this is because jinja can check if a variable exists or not
-        elif item["category"] in range(2, 5):
+        # a falsy date hides the date block in label.html (jinja `if received_date`)
+        date = None
+        if item["category"] in config.setting("label_date_categories", [2, 3, 4]):
             # items without a Received field just get a blank date on the label
             extra_fields = json.loads(item["metadata"] or "{}").get("extra_fields") or {}
             date = extra_fields.get("Received", {}).get("value", "")
@@ -33,7 +33,7 @@ class LabelGenerator:
                 id_num=id,
                 name=item["title"],
                 received_date=date,
-                qr_text=f"https://eln.ddomlab.org/database.php?mode=view&id={id}",
+                qr_text=config.item_web_url(id),
             )
         )
 

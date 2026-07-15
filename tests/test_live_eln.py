@@ -62,6 +62,45 @@ class TestReads:
         locations = resp.get_json()
         assert isinstance(locations, list)
 
+    def test_template_unknown_category_is_404(self, client, auth_headers):
+        resp = client.get("/template?category=999999", headers=auth_headers)
+        assert resp.status_code == 404
+
+    def test_categories_lists_team_categories(self, client, auth_headers):
+        resp = client.get("/categories", headers=auth_headers)
+        assert resp.status_code == 200
+        categories = resp.get_json()
+        assert all(set(c) == {"id", "title"} for c in categories)
+        assert {"id": 2, "title": "Chemical Compound"} in categories
+
+    def test_statuses_lists_team_statuses(self, client, auth_headers):
+        resp = client.get("/statuses", headers=auth_headers)
+        assert resp.status_code == 200
+        statuses = resp.get_json()
+        by_id = {s["id"]: s["title"] for s in statuses}
+        # the DDOM defaults in config.yaml correspond to these
+        assert by_id[4] == "Opened"
+        assert by_id[5] == "Empty"
+
+    def test_post_settings_updates_config_file(self, client, auth_headers, monkeypatch, tmp_path):
+        """Round-trip through the settings endpoint against a copy of the real
+        config.yaml so the actual file is never modified."""
+        import eln_common.config as config
+
+        cfg_copy = tmp_path / "config.yaml"
+        cfg_copy.write_text(config.CONFIG_PATH.read_text())
+        monkeypatch.setattr(config, "CONFIG_PATH", cfg_copy)
+
+        resp = client.post(
+            "/settings",
+            json={"status_open": 4, "chemical_categories": [2, 3, 4], "ignored_key": 1},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["updated"] == {"status_open": 4, "chemical_categories": [2, 3, 4]}
+        assert config.setting("chemical_categories", []) == [2, 3, 4]
+        assert "## Team-specific IDs" in cfg_copy.read_text()  # comments survive
+
     def test_template_with_garbage_key_errors(self, client):
         resp = client.get(
             "/template?category=2", headers={"Authorization": "not-a-real-key"}
