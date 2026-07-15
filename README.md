@@ -29,18 +29,21 @@ server-held key for request handling.
   `Bearer <key>`).
 
 Generate keys at https://eln.ddomlab.org/ucp.php?tab=3. The one-off scripts in
-`scripts/` are the exception: they read a local `eln_common/api_key` file
-(gitignored), or the `api_key_path` set in `config.yaml`.
+`scripts/` are the exception: they act as the `eln_api_key` set in
+`secrets.yaml` (see below).
 
-The Slack bot token is server-side: place it at `automations/slack_bot_token`
-or set `slack_bot_token_path` in `config.yaml`.
+The Slack bot token is server-side: set `slack_bot_token` in `secrets.yaml`.
 
 ## Configuration
 
 Server settings live in `config.yaml` at the repo root (relative paths resolve
-from there): `eln_url`, `api_key_path`, `printer_path`,
-`slack_bot_token_path`, and `auto_upload_labels`. If the file is missing, the
-defaults shown in it (and in `eln_common/config.py`) apply.
+from there): `eln_url`, `printer_path`, and `auto_upload_labels`. If the file
+is missing, the defaults shown in it (and in `eln_common/config.py`) apply.
+
+Secrets are kept separately in a gitignored `secrets.yaml` at the repo root —
+copy `secrets.example.yaml` and fill in `eln_api_key` (scripts only) and
+`slack_bot_token`. Secrets are read lazily, so the server can start before the
+file exists and picks up changes without a restart.
 
 ## Automation API
 

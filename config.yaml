@@ -1,18 +1,14 @@
 # eln_server configuration.
 # Relative paths are resolved from this directory (the repository root).
 
+# Secrets (eLN API key fallback, Slack bot token) do NOT go here -- fill in
+# the gitignored secrets.yaml instead (copy secrets.example.yaml).
+
 # eLabFTW API v2 base URL
 eln_url: https://eln.ddomlab.org/api/v2
 
-# Fallback API key file, used only by the one-off scripts in scripts/.
-# Server requests always act as the key the caller provides.
-api_key_path: eln_common/api_key
-
 # Where generated label PDFs are written before printing/upload
 printer_path: /tmp/label.pdf
-
-# Slack bot token file (server-side; see README "Authentication")
-slack_bot_token_path: automations/slack_bot_token
 
 # Legacy feature: /print used to fetch a label.pdf stored on each resource, so
 # autofill uploaded one to every new item. /print now generates labels on the

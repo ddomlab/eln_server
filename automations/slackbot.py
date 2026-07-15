@@ -9,14 +9,13 @@ ERROR_CHANNEL: str = "G093HPVQ9AP"
 # channel for peroxide former reminders
 PEROXIDE_CHANNEL: str = "C07SSMMU9E1"
 
-BOT_TOKEN_PATH: str = config.SLACK_BOT_TOKEN_PATH
-
-
 def _get_token() -> str:
     # loaded lazily so the server can start (and non-Slack features work)
-    # even if the token file hasn't been placed yet
-    with open(BOT_TOKEN_PATH) as file:
-        return file.read().rstrip()
+    # even if the secret hasn't been filled in yet
+    token = config.get_secret("slack_bot_token")
+    if not token:
+        raise ValueError(f"No slack_bot_token set in {config.SECRETS_PATH}")
+    return token
 
 
 # Very simple bot. Sends a message in its designated channel when called.

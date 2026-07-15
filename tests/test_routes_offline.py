@@ -151,9 +151,8 @@ class TestConfig:
 
         assert config.URL.startswith("http")
         assert isinstance(config.AUTO_UPLOAD_LABELS, bool)
-        # every configured path is absolute after repo-root resolution
-        for p in (config.API_KEY_PATH, config.PRINTER_PATH, config.SLACK_BOT_TOKEN_PATH):
-            assert p.startswith("/"), p
+        # configured paths are absolute after repo-root resolution
+        assert config.PRINTER_PATH.startswith("/")
 
     def test_relative_paths_resolve_from_repo_root(self):
         import eln_common.config as config
@@ -162,6 +161,48 @@ class TestConfig:
             config.PROJECT_ROOT / "eln_common" / "api_key"
         )
         assert config._path("/tmp/label.pdf") == "/tmp/label.pdf"
+
+
+class TestSecrets:
+    def test_get_secret_reads_field(self, monkeypatch, tmp_path):
+        import eln_common.config as config
+
+        secrets = tmp_path / "secrets.yaml"
+        secrets.write_text('eln_api_key: "abc123"\nslack_bot_token: ""\n')
+        monkeypatch.setattr(config, "SECRETS_PATH", secrets)
+        assert config.get_secret("eln_api_key") == "abc123"
+        # empty string means "not filled in"
+        assert config.get_secret("slack_bot_token") is None
+        assert config.get_secret("nonexistent") is None
+
+    def test_get_secret_missing_file_returns_none(self, monkeypatch, tmp_path):
+        import eln_common.config as config
+
+        monkeypatch.setattr(config, "SECRETS_PATH", tmp_path / "nope.yaml")
+        assert config.get_secret("eln_api_key") is None
+
+    def test_get_api_key_without_secret_raises(self, monkeypatch, tmp_path):
+        import eln_common.config as config
+
+        monkeypatch.setattr(config, "SECRETS_PATH", tmp_path / "nope.yaml")
+        with pytest.raises(ValueError, match="eln_api_key"):
+            config.get_api_key()
+
+    def test_slack_token_missing_raises_helpful_error(self, monkeypatch, tmp_path):
+        import automations.slackbot as slackbot
+        import eln_common.config as config
+
+        monkeypatch.setattr(config, "SECRETS_PATH", tmp_path / "nope.yaml")
+        with pytest.raises(ValueError, match="slack_bot_token"):
+            slackbot._get_token()
+
+    def test_example_file_has_the_expected_fields(self):
+        import yaml
+
+        from eln_common.config import PROJECT_ROOT
+
+        example = yaml.safe_load((PROJECT_ROOT / "secrets.example.yaml").read_text())
+        assert set(example) == {"eln_api_key", "slack_bot_token"}
 
 
 class FakeRM:

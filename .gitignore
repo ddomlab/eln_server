@@ -1,4 +1,6 @@
 # secrets -- never commit these
+secrets.yaml
+# legacy secret files, replaced by secrets.yaml
 api_key
 slack_bot_token
 

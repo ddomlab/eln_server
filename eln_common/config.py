@@ -26,15 +26,28 @@ def _path(value: str) -> str:
 
 _cfg = _load_config_file()
 
+# Secrets (the eLN API key fallback and the Slack bot token) live in a
+# gitignored secrets.yaml at the repo root; see secrets.example.yaml.
+SECRETS_PATH = PROJECT_ROOT / "secrets.yaml"
+
+
+def get_secret(name: str) -> str | None:
+    """Read one field from secrets.yaml. Loaded lazily on each call so the
+    server can start before the file exists and pick it up once filled in."""
+    try:
+        with open(SECRETS_PATH) as f:
+            secrets = yaml.safe_load(f)
+    except FileNotFoundError:
+        return None
+    if not isinstance(secrets, dict):
+        return None
+    value = secrets.get(name)
+    return str(value).strip() if value else None
+
+
 ## CONFIGURATION VARIABLES (from config.yaml at the repo root; defaults below) ##
-# Interactive/API callers pass their own eLabFTW API key with each request, so the
-# server itself does not need a key file. A local 'api_key' file (gitignored) is
-# still supported as a fallback for running the one-off scripts in scripts/.
-# New api keys can be generated at https://eln.ddomlab.org/ucp.php?tab=4
-API_KEY_PATH = _path(_cfg.get("api_key_path", "eln_common/api_key"))
 URL = _cfg.get("eln_url", "https://eln.ddomlab.org/api/v2")
 PRINTER_PATH = _path(_cfg.get("printer_path", "/tmp/label.pdf"))
-SLACK_BOT_TOKEN_PATH = _path(_cfg.get("slack_bot_token_path", "automations/slack_bot_token"))
 # Legacy feature: /print used to fetch a label.pdf stored on each resource, so
 # autofill uploaded one to every new item. /print now generates labels on the
 # fly, making the uploads redundant; set auto_upload_labels: true in
@@ -47,14 +60,14 @@ urllib3.disable_warnings()
 
 
 def get_api_key(key: str | None = None):
-    """Build an elabapi client from the given key, or fall back to the local api_key file."""
+    """Build an elabapi client from the given key, or fall back to the
+    eln_api_key entry in secrets.yaml (used by the one-off scripts in scripts/;
+    server requests always pass the caller's key)."""
     if key is None:
-        try:
-            with open(API_KEY_PATH) as keyfile:
-                key = keyfile.read().strip()
-        except FileNotFoundError:
+        key = get_secret("eln_api_key")
+        if not key:
             raise ValueError(
-                "No API key provided and no api_key file found at " + API_KEY_PATH
+                f"No API key provided and no eln_api_key set in {SECRETS_PATH}"
             )
     configuration = elabapi_python.Configuration()
     configuration.api_key["api_key"] = key

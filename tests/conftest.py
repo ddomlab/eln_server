@@ -37,9 +37,13 @@ def _load_api_key() -> str | None:
         import yaml
         with open(path) as f:
             data = yaml.safe_load(f)
-        return data.get(KEY_TAG) if isinstance(data, dict) else None
+        if isinstance(data, dict) and data.get(KEY_TAG):
+            return data[KEY_TAG]
     except (FileNotFoundError, ImportError):
-        return None
+        pass
+    # fall back to the project's own secrets.yaml
+    from eln_common.config import get_secret
+    return get_secret("eln_api_key")
 
 
 @pytest.fixture(scope="session")
