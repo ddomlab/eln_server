@@ -37,3 +37,18 @@ status_empty: 5
 chemical_categories: [2, 3]
 # Resource categories whose printed labels show a "Received" date
 label_date_categories: [2, 3, 4]
+
+## Slack integration ##########################################################
+# Set to true to have the automations report to Slack (autofill errors,
+# peroxide reminders). Requires slack_bot_token in secrets.yaml. When false
+# (the default), messages are written to the server log instead.
+slack_enabled: false
+
+# Slack channel IDs the bot posts to -- find them via "view channel details"
+# in Slack. "default" gets general bot messages, "error" gets automation
+# failure reports, "peroxide" gets peroxide-former reminders. A missing
+# entry falls back to "default".
+slack_channels:
+  default: ""
+  error: ""
+  peroxide: ""

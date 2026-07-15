@@ -85,18 +85,16 @@ def autofill_item(rm: Resource_Manager, id: int, force=False, info=True, label=T
     process_item(rm, rm.get_item(id), force=force, info=info, label=label, image=image)
 
 
-def autofill(rm: Resource_Manager, start=300, end=None, force=False, info=True, label=True, image=True, size=5):
+def autofill(rm: Resource_Manager, start=0, end=None, force=False, info=True, label=True, image=True, size=5):
     """
     This method controls which functions are called and handles deciding which items to autofill.
     The start and end parameters can be used to edit a certain range of items.
     This is not necessary in typical use, when the method is run automatically on
-    the 5 most recently created items, and only if their ID is greater than 300,
-    but the functionality is there if needed--for example:
-    manually running autofill on a range of items that were created
-    before the autofill was implemented.
+    the 5 most recently created items, but the functionality is there if
+    needed--for example: manually running autofill on a specific range of items.
 
         :param Resource_Manager rm: the Resource_Manager (and thus the API key) to act as
-        :param int start: lowest bound of item id to autofill
+        :param int start: lowest bound of item id to autofill, 0 (no bound) by default
         :param int end: highest bound of item id to autofill, no end by default
         :param bool force: whether to fill in items that have already been filled in--False by default
         :param bool info: whether to fill in the information fields--True by default

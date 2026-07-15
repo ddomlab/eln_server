@@ -65,36 +65,33 @@ The code expects resources to carry specific extra fields, by exact name and
 capitalization. Another lab must define their templates the same way or these
 features break:
 
-- `Opened` — `/mark_open` (missing field → unhandled KeyError → HTTP 500)
-- `Location` — `/mark_open` isn't affected but `/change_location` KeyErrors,
-  and `/get_locations` reads each template's `Location.options` (that part is
-  dynamic and degrades gracefully)
+- `Opened` — `/mark_open`. **Fixed (2026-07-15)** — a missing field now
+  returns a clean 400 explaining the template must define an `Opened` extra
+  field, instead of an unhandled KeyError → HTTP 500.
+- `Location` — `/change_location`. **Fixed (2026-07-15)** — same clean-400
+  treatment. `/get_locations` reads each template's `Location.options` (that
+  part is dynamic and degrades gracefully)
 - `Received` — printed labels (now degrades to a blank date)
 - `CAS`, `SMILES`, `Full name`, `Molecular Weight`, `Pubchem Link`,
-  `Hazards Link` — autofill/`/search`. `fill_info` auto-creates most of them
-  if absent **but writes into `Full name` without creating it first**
-  (`eln_common/fill_info.py:83`) — an item without a `Full name` field makes
-  autofill crash. Low-effort fix: create-if-missing like the other fields.
+  `Hazards Link` — autofill/`/search`. **Fixed (2026-07-15)** — `fill_info`
+  now creates `Full name` if absent, like it already did for the other fields.
 - `Room`, `Location`, `CAS`, `Quantity`/`Quantity Units` — peroxide checks and
   the `scripts/` one-offs assume these DataFrame columns exist; items missing
   them make `get_items_df` produce NaN columns or KeyErrors. **(convention)**
 
-Suggested cheap win: a "required template fields" section in the README, plus
-tolerant `.get()` access in `/mark_open`/`/change_location` so a missing field
-returns a clean 400 instead of a 500.
+Suggested cheap win (remaining): a "required template fields" section in the
+README.
 
-### Slack integration
-- `automations/slackbot.py:7-11` — the three channel IDs (default, error,
-  peroxide) are DDOM's Slack workspace channels, hardcoded. Move to
-  `config.yaml` (`slack_channels: {default, error, peroxide}`). **Low.**
-- Labs not on Slack get errors every time an automation tries to report;
-  consider a `slack_enabled: false` switch that turns `send_message` into a
-  log line. **Low.**
+### Slack integration — FIXED
+Both resolved (2026-07-15): the three channel IDs now live in `config.yaml`
+under `slack_channels: {default, error, peroxide}` (call sites pass those
+logical names), and Slack is off unless `slack_enabled: true` is set —
+disabled or unconfigured channels turn `send_message` into a server-log line.
 
-### Autofill ID threshold
-- `automations/autofill.py:88` and `web/automation_api.py:45` — `start=300`
-  skips items below ID 300 (DDOM's pre-automation legacy items). Another lab
-  wants `0`. Make it a `config.yaml` default (`autofill_start: 300`). **Low.**
+### Autofill ID threshold — REMOVED
+Removed entirely (2026-07-15): `autofill` and `POST /api/autofill` now default
+to `start=0`, and the timer client no longer sends `start: 300`. A range can
+still be passed explicitly when needed.
 
 ### Labels / printer
 - `automations/labels/style.css` — 62×18 mm label geometry for our specific
@@ -130,10 +127,11 @@ returns a clean 400 instead of a 500.
 
 1. ~~**`eln_web_url` config key**~~ — **done** (see section 1).
 2. ~~**Category/status config keys**~~ — **done** (see section 2), plus a
-   `/settings_interface` page to set them from API-fed dropdowns. Note
-   `autofill_start` is still hardcoded (see section 4).
+   `/settings_interface` page to set them from API-fed dropdowns. The 300 ID
+   threshold has since been removed outright (see section 4).
 3. ~~**`/template` lookup by id, not list index**~~ — **done**.
-4. **Slack channels + enable switch in config.**
+4. ~~**Slack channels + enable switch in config.**~~ — **done** (see
+   section 4).
 5. ~~**Category dropdown populated from the API**~~ — **done**.
-6. **Document the required extra-field names** and return clean 400s when
-   they're missing.
+6. **Document the required extra-field names** in the README — the clean-400
+   half is **done** for `/mark_open`/`/change_location`.

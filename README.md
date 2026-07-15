@@ -50,13 +50,17 @@ copy `secrets.example.yaml` and fill in `eln_api_key` (scripts only) and
 `slack_bot_token`. Secrets are read lazily, so the server can start before the
 file exists and picks up changes without a restart.
 
+Slack reporting is off unless `slack_enabled: true` is set in `config.yaml`,
+with your workspace's channel IDs under `slack_channels` (see `config-ex.yaml`);
+when disabled, the automations write their reports to the server log instead.
+
 ## Automation API
 
 - `POST /api/autofill` — PubChem info fill, RDKit image (and, legacy, label upload).
   Optional JSON body: `{"id": 123}` for one item, or
-  `{"start": 300, "end": null, "size": 5, "force": false, "info": true, "label": true, "image": true}`
-  (defaults shown; matches the old cron behavior). Errors are reported to the
-  Slack error channel, like the old `main.py`.
+  `{"start": 0, "end": null, "size": 5, "force": false, "info": true, "label": true, "image": true}`
+  (defaults shown). Errors are reported to the Slack error channel, like the
+  old `main.py`.
 - `POST /api/check_peroxides` — checks the inventory against the class A–D
   peroxide-former lists and sends Slack reminders. Returns match counts.
 

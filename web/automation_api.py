@@ -42,7 +42,7 @@ def autofill():
         else:
             automations.autofill.autofill(
                 rmn,
-                start=int(data.get("start", 300)),
+                start=int(data.get("start", 0)),
                 end=int(data["end"]) if data.get("end") is not None else None,
                 size=int(data.get("size", 5)),
                 **kwargs,

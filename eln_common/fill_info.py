@@ -80,6 +80,13 @@ def get_filled_dictionary(body: dict) -> dict:
         # otherwise try to search by the non-CAS title
         values: dict = pull_values(body["title"])
         CAS = ""
+    if "Full name" not in metadata["extra_fields"]:
+        # if there isn't a Full name field, create one
+        metadata["extra_fields"]["Full name"] = {
+            "type": "text",
+            "value": "",
+            "description": "From PubChem",
+        }
     metadata["extra_fields"]["Full name"]["value"] = values["Full name"]
 
     if "SMILES" not in metadata["extra_fields"]:

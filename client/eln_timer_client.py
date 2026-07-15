@@ -25,8 +25,8 @@ SERVER_URL = os.environ.get("ELN_SERVER_URL", "http://localhost:5000").rstrip("/
 API_KEY_FILE = os.environ.get("ELN_API_KEY_FILE", "/etc/eln-client/api_key")
 
 TASKS = {
-    # matches the old cron behavior: autofill the 5 most recent items with id >= 300
-    "autofill": {"start": 300, "size": 5, "info": True, "label": True, "image": True},
+    # autofill the 5 most recently created items
+    "autofill": {"size": 5, "info": True, "label": True, "image": True},
     "check_peroxides": {},
 }
 

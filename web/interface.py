@@ -203,10 +203,15 @@ def mark_open():
         return jsonify({"error": "Expected a list of IDs"}), 400
     for id in ids:
         body = rmn.get_item(id)
-        metadata = json.loads(body["metadata"])
-        if metadata["extra_fields"]["Opened"]["value"] != "":
-            return jsonify({"error": f"Item {id} already marked as opened on {metadata['extra_fields']['Opened']['value']}"}), 400
-        metadata["extra_fields"]["Opened"]["value"] = datetime.now().isoformat()[:10]
+        metadata = json.loads(body["metadata"] or "{}")
+        opened = metadata.get("extra_fields", {}).get("Opened")
+        if opened is None:
+            return jsonify({"error": f"Item {id} has no 'Opened' extra field. "
+                            "Its category's template must define an extra field named "
+                            "'Opened' (exact spelling) for it to be marked as opened."}), 400
+        if opened.get("value", "") != "":
+            return jsonify({"error": f"Item {id} already marked as opened on {opened['value']}"}), 400
+        opened["value"] = datetime.now().isoformat()[:10]
         rmn.change_item(id, {"metadata": json.dumps(metadata), "status": config.setting("status_open", 4)})
     return "Success", 200
 
@@ -223,8 +228,13 @@ def change_location():
         return jsonify({"error": "Expected a list of IDs"}), 400
     for id in ids:
         body = rmn.get_item(id)
-        metadata = json.loads(body["metadata"])
-        metadata["extra_fields"]["Location"]["value"] = data.get('location', "")
+        metadata = json.loads(body["metadata"] or "{}")
+        location = metadata.get("extra_fields", {}).get("Location")
+        if location is None:
+            return jsonify({"error": f"Item {id} has no 'Location' extra field. "
+                            "Its category's template must define an extra field named "
+                            "'Location' (exact spelling) before its location can be set."}), 400
+        location["value"] = data.get('location', "")
         rmn.change_item(id, {"metadata": json.dumps(metadata), "status": config.setting("status_open", 4)})
     return "Success", 200
 

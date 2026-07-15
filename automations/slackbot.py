@@ -2,12 +2,14 @@ import requests
 
 import eln_common.config as config
 
-# channel ID of the eln_bot channel, can be found by clicking "view channel details"
-DEFAULT_CHANNEL: str = "C093HPVRLKD"
-# channel for error reports from the automations
-ERROR_CHANNEL: str = "G093HPVQ9AP"
-# channel for peroxide former reminders
-PEROXIDE_CHANNEL: str = "C07SSMMU9E1"
+# Logical channel names, mapped to the workspace's actual channel IDs by the
+# slack_channels section of config.yaml (see config-ex.yaml).
+# general bot messages
+DEFAULT_CHANNEL: str = "default"
+# error reports from the automations
+ERROR_CHANNEL: str = "error"
+# peroxide former reminders
+PEROXIDE_CHANNEL: str = "peroxide"
 
 def _get_token() -> str:
     # loaded lazily so the server can start (and non-Slack features work)
@@ -19,7 +21,18 @@ def _get_token() -> str:
 
 
 # Very simple bot. Sends a message in its designated channel when called.
+# `channel` is one of the logical names above; if the lab isn't on Slack
+# (slack_enabled: false, the default), the message goes to the server log.
 def send_message(message: str, channel: str = DEFAULT_CHANNEL):
+    if not config.setting("slack_enabled", False):
+        print(f"[slack disabled] {channel}: {message}")
+        return
+    channels = config.setting("slack_channels", {}) or {}
+    channel_id = channels.get(channel) or channels.get(DEFAULT_CHANNEL)
+    if not channel_id:
+        print(f"[slack] no channel id for '{channel}' in slack_channels "
+              f"(config.yaml); message not sent: {message}")
+        return
     headers = {
         "Authorization": "Bearer " + _get_token(),
         "Content-Type": "application/json",
@@ -27,7 +40,7 @@ def send_message(message: str, channel: str = DEFAULT_CHANNEL):
     requests.post(
         "https://slack.com/api/chat.postMessage",
         headers=headers,
-        json={"channel": channel, "text": message},
+        json={"channel": channel_id, "text": message},
     )
 
 
