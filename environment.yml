@@ -1,4 +1,4 @@
-name: ddomlabbackend  # Environment name
+name: eln_server  # Environment name
 
 dependencies:  # Packages should be installed through conda if possible
   - python=3.11  # Python version
