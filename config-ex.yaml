@@ -1,0 +1,39 @@
+# eln_server configuration.
+# Relative paths are resolved from this directory (the repository root).
+
+# Secrets (eLN API key fallback, Slack bot token) do NOT go here -- fill in
+# the gitignored secrets.yaml instead (copy secrets.example.yaml).
+
+# eLabFTW API v2 base URL (required -- the server refuses to start without it)
+eln_url: https://eln.ddomlab.org/api/v2
+
+# eLabFTW web UI base URL (required): used for the QR codes on printed labels,
+# links in Slack reports, and the web interface
+eln_web_url: https://eln.ddomlab.org
+
+# Where generated label PDFs are written before printing/upload
+printer_path: /tmp/label.pdf
+
+# Legacy feature: /print used to fetch a label.pdf stored on each resource, so
+# autofill uploaded one to every new item. /print now generates labels on the
+# fly, making the uploads redundant; set this to true to keep attaching
+# label.pdf to resources anyway.
+auto_upload_labels: false
+
+## Team-specific IDs ##########################################################
+# eLabFTW statuses and resource categories are per-team lists with arbitrary
+# IDs, so they must be mapped here for your instance. Two ways to find them:
+#   - easiest: open <server>/settings_interface and pick them from dropdowns
+#     (it saves back to this file), or
+#   - list them yourself: statuses at <eln_web_url>/api/v2/teams/current/items_status
+#     and resource categories at <eln_web_url>/api/v2/items_types
+#     (log in first, or pass an Authorization header), then enter the IDs below.
+
+# Status a resource gets when marked as opened / when its location is changed
+status_open: 4
+# Status a resource gets when marked as empty
+status_empty: 5
+# Resource categories that get PubChem info + an RDKit structure image on autofill
+chemical_categories: [2, 3]
+# Resource categories whose printed labels show a "Received" date
+label_date_categories: [2, 3, 4]
