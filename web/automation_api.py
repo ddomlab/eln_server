@@ -49,7 +49,7 @@ def autofill():
             )
     except Exception as e:
         # report failures to the bot channel like the old cron job did
-        slackbot.send_message(f"Error in autofill: {e}", channel=slackbot.ERROR_CHANNEL)
+        slackbot.send_message(f"Error in autofill: {str(e)}", channel=slackbot.ERROR_CHANNEL)
         return jsonify({"status": "error", "error": str(e)}), 500
     return jsonify({"status": "ok"})
 
