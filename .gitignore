@@ -18,6 +18,9 @@ __pycache__/
 build/
 dist/
 
+# virtual environments
+.venv/
+
 # editors / OS
 .vscode/
 .idea/
