@@ -847,7 +847,7 @@
 
         const canvas = document.createElement("canvas");
         canvasWrapper.appendChild(canvas);
-        container.addEventListener("click", () => {
+        canvasWrapper.addEventListener("click", () => {
           inputProcessor.value = code;
           handleInputSubmission(code);
         });
