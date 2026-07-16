@@ -75,11 +75,14 @@ ignored unless it is set).
 
 ## Running the server
 
+Dependencies are managed with [uv](https://docs.astral.sh/uv/) in a local
+`.venv` (gitignored):
+
 ```bash
-conda env create -f environment.yml   # or: pip install -r requirements.txt
-conda activate ddomlabbackend
-python app.py                          # dev
-gunicorn -w 4 -b 0.0.0.0:5000 app:app  # prod
+uv venv                                        # create .venv
+uv pip install -r requirements.txt
+uv run python app.py                           # dev
+uv run gunicorn -w 4 -b 0.0.0.0:5000 app:app   # prod
 ```
 
 On the DigitalOcean box, install `deploy/eln-server.service` (edit paths if the

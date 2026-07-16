@@ -52,8 +52,8 @@ and `/categories` endpoints) and saves selections back to `config.yaml`
 
 | Where | What | Notes |
 |---|---|---|
-| `README.md` | DigitalOcean box, `/usr/share/applications/eln_server` checkout path, `ddomlabbackend` conda env name, "remove the old crontab entries" migration notes | Rewrite as generic install instructions with DDOM specifics in a separate "our deployment" section. **Low.** |
-| `deploy/eln-server.service` | Absolute gunicorn path `/usr/share/applications/miniconda3/envs/ddomlabbackend/bin/gunicorn` and WorkingDirectory | Already flagged "adjust paths"; consider an install script that templates them. **Low.** |
+| `README.md` | DigitalOcean box, `/usr/share/applications/eln_server` checkout path, "remove the old crontab entries" migration notes | Rewrite as generic install instructions with DDOM specifics in a separate "our deployment" section. **Low.** |
+| `deploy/eln-server.service` | Absolute gunicorn path `/usr/share/applications/eln_server/.venv/bin/gunicorn` and WorkingDirectory | Already flagged "adjust paths"; consider an install script that templates them. **Low.** |
 | `client/eln-peroxide-check.timer` | Peroxide checks on May 1 / Nov 1 — that cadence is DDOM lab policy | Document as an example schedule. **(convention)** |
 | `automations/peroxides/check_peroxides.py:17` | NIH guidance link in the reminder message | Generic safety reference, fine to keep. |
 | `static/*.html` UI text | Voice commands, page copy | English-only but otherwise generic. |
