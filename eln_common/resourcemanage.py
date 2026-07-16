@@ -260,7 +260,9 @@ class Resource_Manager:
             :param int id: The ID of the item to be checked.
             :return: True if the item is busy, False otherwise.
         """
-        return self.get_url('/items/' + str(id)).json()['exclusive_edit_mode'] != [] # return True if item is busy, False otherwise
+        # eLabFTW returns null (>= 5.6, previously []) when nobody holds the
+        # lock, and a dict describing the lock holder when someone does
+        return bool(self.get_url('/items/' + str(id)).json().get('exclusive_edit_mode'))
     def json_loads(self, x): 
         """function to get dictionaries from json, accounting for elements that may be dictionaries already, json strings, or None """
         if isinstance(x, dict):
