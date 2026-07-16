@@ -82,7 +82,7 @@ Dependencies are managed with [uv](https://docs.astral.sh/uv/) in a local
 uv venv                                        # create .venv
 uv pip install -r requirements.txt
 uv run python app.py                           # dev
-uv run gunicorn -w 4 -b 0.0.0.0:5000 app:app   # prod
+uv run gunicorn -w 2 -b 0.0.0.0:5000 app:app   # prod
 ```
 
 On the DigitalOcean box, install `deploy/eln-server.service` (edit paths if the
