@@ -6,6 +6,23 @@ repositories into one Flask application: the web interface, the eLab API
 wrapper, and the automations (autofill, label generation, RDKit images,
 peroxide-former Slack reminders) all live here and run through the server.
 
+<img width="1904" height="1014" alt="image" src="https://github.com/user-attachments/assets/aec601f7-02c2-4f06-8ca8-97bc39e99d4d" />
+
+## Features
+- Keyboard and QR scanner-accessible user interface
+- Inventory management actions
+  - Resource creation
+  - Marking open (and recording open date)
+  - Marking empty
+  - Assosciating Resources with Experiments
+  - Generating PDF labels for printing
+  - Generating custom labels
+  - Performing 'batch actions' (above actions taken on multiple items at once)
+- ELN Automations
+  - Autofilling Resource information from CAS (hazards, molecular weight, RDKit image, SMILES, etc.)
+  - Reminders to check peroxide formers with formatted list of peroxide formers
+
+
 ## Layout
 
 | Directory | Contents |
@@ -21,18 +38,13 @@ peroxide-former Slack reminders) all live here and run through the server.
 
 ## Authentication
 
-Every route acts as the eLabFTW API key the caller provides — there is no
-server-held key for request handling.
+Generate keys using eLabFTW (https://doc.elabftw.net/docs/usage/api/). 
 
-- Web UI: the `apiKey` cookie (unchanged from `eln_web_backend`).
-- API clients / timer client: the `Authorization` header (a bare key or
-  `Bearer <key>`).
+Actions taken through the web interface (creating resources, marking open/empty, changing location, etc.) use a user-provided API key, stored as a cookie on-device. This provides authentication for user-prompted actions.
 
-Generate keys at https://eln.ddomlab.org/ucp.php?tab=3. The one-off scripts in
-`scripts/` are the exception: they act as the `eln_api_key` set in
-`secrets.yaml` (see below).
-
-The Slack bot token is server-side: set `slack_bot_token` in `secrets.yaml`.
+Automated actions executed by the services in `client/`, as well as the one-off maintenance scripts stored in `scripts/` use the key provided in `secrets.yaml`. 
+A generic "Automations" ELN account can be created and managed by an admin to generate API keys for these actions (that way they are not tied to a specific user).
+The Slack bot token is also server-side: set `slack_bot_token` in `secrets.yaml`.
 
 ## Configuration
 
@@ -59,12 +71,11 @@ when disabled, the automations write their reports to the server log instead.
 - `POST /api/autofill` — PubChem info fill, RDKit image (and, legacy, label upload).
   Optional JSON body: `{"id": 123}` for one item, or
   `{"start": 0, "end": null, "size": 5, "force": false, "info": true, "label": true, "image": true}`
-  (defaults shown). Errors are reported to the Slack error channel, like the
-  old `main.py`.
+  (defaults shown, autofills the 5 most recently modified Resources with IDs between 0 and `null` (infinity)). Errors are reported to the Slack error channel, like the old `main.py`.
 - `POST /api/check_peroxides` — checks the inventory against the class A–D
   peroxide-former lists and sends Slack reminders. Returns match counts.
 
-The `/add_resource` UI route now also triggers an autofill of the new item in
+The `/add_resource` UI route also triggers an autofill of the new item in
 the background, so info/images appear immediately after creation.
 
 Label printing (`/print`) generates the PDF on the fly from the item's current
@@ -85,7 +96,7 @@ uv run python app.py                           # dev
 uv run gunicorn -w 2 -b 0.0.0.0:5000 app:app   # prod
 ```
 
-On the DigitalOcean box, install `deploy/eln-server.service` (edit paths if the
+Install `deploy/eln-server.service` (edit paths if the
 checkout isn't `/usr/share/applications/eln_server`):
 
 ```bash
@@ -96,23 +107,13 @@ sudo systemctl enable --now eln-server
 
 ### PTH blueprint
 
-The PTH tracker is a separate project. If its files (`pth_server.py`, its data)
-are placed next to `app.py`, its blueprint is registered automatically;
-otherwise the server starts without it.
+The PTH tracker is a separate project (https://github.com/ddomlab/pth_analysis). If it is available in the environment, it is started on the `/pth` endpoint, otherwise it is ignored
 
 ## Timed automations (optional client)
 
-The old cron jobs (`run.sh`, `check_peroxides.sh`) are replaced by systemd
-timers that call the API. On whatever machine should drive the schedule
-(usually the server itself):
-
-```bash
-cd client
-sudo ./install.sh   # prompts for the eLab API key to act as
-```
+The systemd timers (in `client/`) execute the automated actions. They can be automatically installed with the `install.sh` script in `client/`
 
 This installs `eln-autofill.timer` (every 10 minutes — adjust `OnCalendar` to
 taste, including excluding backup windows) and `eln-peroxide-check.timer`
 (May 1 and Nov 1). The key is stored at `/etc/eln-client/api_key`; the server
-URL is set via `ELN_SERVER_URL` in the `.service` files. Remove the old
-crontab entries for `run.sh`/`check_peroxides.sh` after installing.
+URL is set via `ELN_SERVER_URL` in the `.service` files.
