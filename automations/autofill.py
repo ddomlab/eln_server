@@ -46,10 +46,14 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
     # only made when ELN_AUTO_UPLOAD_LABELS is set (see eln_common/config.py).
     if label and config.AUTO_UPLOAD_LABELS:
         create_and_upload_labels(rm, id)
-    if type in config.setting("chemical_categories", [2, 3]):  # only chemical-like categories get info/images
-        metadata = json.loads(item["metadata"])
-        # check if the item has been autofilled already, or if force is true
-        if (item["tags"] is None or "Autofilled" not in item["tags"] or force) and not rm.is_item_busy(id):
+    if type in config.setting("chemical_categories", [2, 3]):  # only chemical-like categories get info/images, default to DDOMLab settings
+        try:
+            metadata = json.loads(item["metadata"])
+        except json.JSONDecodeError:
+            print(f"Invalid JSON in metadata for item {id}")
+            return
+        # check if the item has been autofilled already, skip autofill is on, or if force is true
+        if (item["tags"] is None or "Autofilled" not in item["tags"] or "Skip Autofill" not in item["tags"] or force) and not rm.is_item_busy(id):
             if info:
                 try:
                     fill_info.fill_in(rm, id)

@@ -26,7 +26,7 @@ API_KEY_FILE = os.environ.get("ELN_API_KEY_FILE", "/etc/eln-client/api_key")
 
 TASKS = {
     # autofill the 5 most recently created items
-    "autofill": {"size": 5, "info": True, "label": True, "image": True},
+    "autofill": {"size": 5, "info": True, "label": False, "image": True},
     "check_peroxides": {},
 }
 
