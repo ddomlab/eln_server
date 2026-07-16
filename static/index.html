@@ -204,6 +204,66 @@
         background-color: #cc0000;
         border: 2px solid #990000;
       }
+
+      #experimentPrompt {
+        min-width: 340px;
+      }
+
+      #experimentCombo {
+        position: relative;
+      }
+
+      #experimentInput {
+        margin: 10px 0;
+        width: 100%;
+        padding: 5px 8px;
+        font-size: 1em;
+        border: 2px solid #333;
+        border-radius: 2px;
+        background: #fff;
+        color: #111;
+      }
+
+      #experimentDropdown {
+        display: none;
+        position: absolute;
+        top: calc(100% - 6px);
+        left: 0;
+        right: 0;
+        background: #fff;
+        border: 2px solid #333;
+        box-shadow: 3px 3px 0 #888;
+        max-height: 14rem;
+        overflow-y: auto;
+        z-index: 1002;
+        text-align: left;
+      }
+
+      #experimentDropdown.visible {
+        display: block;
+      }
+
+      .experiment-dropdown-item {
+        padding: 6px 10px;
+        font-size: 0.8em;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+      }
+
+      .experiment-dropdown-item:last-child {
+        border-bottom: none;
+      }
+
+      .experiment-dropdown-item:hover {
+        background: #f0f0f0;
+      }
+
+      .experiment-dropdown-empty {
+        padding: 6px 10px;
+        font-size: 0.8em;
+        color: #888;
+        font-style: italic;
+      }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
   </head>
@@ -254,11 +314,15 @@
       "
     >
       <label for="experimentInput">Enter Experiment ID:</label>
-      <input
-        type="number"
-        id="experimentInput"
-        style="margin: 10px 0; width: 100%"
-      />
+      <div id="experimentCombo">
+        <input
+          type="text"
+          id="experimentInput"
+          placeholder="ID, or type to search…"
+          autocomplete="off"
+        />
+        <div id="experimentDropdown"></div>
+      </div>
       <div style="text-align: right">
         <button onclick="submitExperiment()">Submit (or press [ENTER])</button>
         <div id="cancelQr" onclick="cancelExperiment()" class="qrItem"></div>
@@ -607,7 +671,9 @@
         input.focus();
       }
       function experimentKeyListener(e) {
-        if (e.key === "Enter") {
+        if (e.key === "Escape") {
+          hideExperimentDropdown();
+        } else if (e.key === "Enter") {
           submitExperiment();
         }
       }
@@ -616,9 +682,112 @@
         input.removeEventListener("keydown", experimentKeyListener); // 🔧 Clean up
         document.getElementById("experimentPrompt").style.display = "none";
         document.getElementById("cancelQr").innerHTML = "";
+        hideExperimentDropdown();
 
         focusOnInput = true;
       }
+
+      // ── experiment lookup dropdown ──────────────────────────────────────
+      const EXPERIMENT_SEARCH_DEBOUNCE_MS = 350;
+      const experimentInput = document.getElementById("experimentInput");
+      const experimentDropdown = document.getElementById("experimentDropdown");
+      let experimentDebounceTimer = null;
+      let experimentAbortController = null;
+      let experimentItems = [];
+
+      function isIntegerString(s) {
+        return /^\d+$/.test(s);
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function renderExperimentDropdown(items) {
+        experimentItems = items;
+        experimentDropdown.innerHTML = items.length
+          ? items
+              .map(
+                (exp, i) =>
+                  `<div class="experiment-dropdown-item" data-index="${i}">${escapeHtml(
+                    String(exp.id)
+                  )} - ${escapeHtml(exp.title ?? "")}</div>`
+              )
+              .join("")
+          : '<div class="experiment-dropdown-empty">No matches</div>';
+        experimentDropdown.classList.add("visible");
+      }
+
+      function hideExperimentDropdown() {
+        experimentDropdown.classList.remove("visible");
+        experimentItems = [];
+      }
+
+      async function fetchExperiments(query) {
+        if (experimentAbortController) experimentAbortController.abort();
+        experimentAbortController = new AbortController();
+
+        const url = query
+          ? `/experiments?q=${encodeURIComponent(query)}`
+          : "/experiments";
+
+        try {
+          const r = await fetch(url, {
+            signal: experimentAbortController.signal,
+          });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const data = await r.json();
+          renderExperimentDropdown(Array.isArray(data) ? data : []);
+        } catch (e) {
+          if (e.name !== "AbortError") {
+            experimentDropdown.innerHTML =
+              '<div class="experiment-dropdown-empty">Failed to load experiments</div>';
+            experimentDropdown.classList.add("visible");
+          }
+        }
+      }
+
+      function scheduleExperimentSearch(query) {
+        clearTimeout(experimentDebounceTimer);
+        experimentDebounceTimer = setTimeout(
+          () => fetchExperiments(query),
+          EXPERIMENT_SEARCH_DEBOUNCE_MS
+        );
+      }
+
+      experimentInput.addEventListener("input", () => {
+        const val = experimentInput.value.trim();
+        clearTimeout(experimentDebounceTimer);
+
+        if (isIntegerString(val)) {
+          // Manual/scanned ID entry — no lookup needed.
+          hideExperimentDropdown();
+        } else {
+          scheduleExperimentSearch(val);
+        }
+      });
+
+      experimentInput.addEventListener("focus", () => {
+        const val = experimentInput.value.trim();
+        if (!isIntegerString(val)) fetchExperiments(val);
+      });
+
+      experimentInput.addEventListener("blur", () => {
+        // Delay so a click on a dropdown item registers before it disappears.
+        setTimeout(hideExperimentDropdown, 150);
+      });
+
+      experimentDropdown.addEventListener("mousedown", (e) => {
+        const item = e.target.closest(".experiment-dropdown-item");
+        if (!item) return;
+        e.preventDefault(); // keep focus on the input instead of triggering blur first
+        e.stopPropagation();
+        const exp = experimentItems[Number(item.dataset.index)];
+        if (exp) experimentInput.value = exp.id;
+        hideExperimentDropdown();
+      });
 
       function submitExperiment() {
         const expId = document.getElementById("experimentInput").value;

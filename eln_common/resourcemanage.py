@@ -216,6 +216,16 @@ class Resource_Manager:
         """
         return self.expapi.read_experiments() #type: ignore
 
+    def search_experiments(self, query: str = "") -> list[dict[str, Any]]:
+        """
+        Searches experiments in the ELN by title/body text.
+            :param str query: The search string; empty returns the most recent experiments.
+            :return: A list of dictionaries containing the matching experiments.
+        """
+        response = self.get_url("/experiments?q=" + requests.utils.quote(query))
+        response.raise_for_status()
+        return response.json()
+
     def get_uploaded_files(self, id:int, resource_type:str="items") -> list:
         """
         Gets a list of uploaded files in the ELN with the given ID.

@@ -88,6 +88,19 @@ SETTINGS_SCHEMA = {
 }
 
 
+@interface_bp.route('/experiments', methods=['GET'])
+def get_experiments():
+    """Experiments matching ?q= (or the most recent ones) as [{id, title}],
+    for the associate-with-experiment dropdown."""
+    try:
+        exps = rm().search_experiments(request.args.get('q', ''))
+        return jsonify([{"id": e["id"], "title": e["title"]} for e in exps])
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 400
+
+
 @interface_bp.route('/settings', methods=['GET', 'POST'])
 @cross_origin(origins="http://localhost:8000")
 def settings():
