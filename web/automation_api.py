@@ -7,6 +7,8 @@ key. The systemd timer client in client/ calls these endpoints on a schedule
 with a key placed on its host machine.
 """
 
+import traceback
+
 from flask import Blueprint, jsonify, request
 
 import automations.autofill
@@ -48,9 +50,14 @@ def autofill():
                 **kwargs,
             )
     except Exception as e:
-        # report failures to the bot channel like the old cron job did
-        slackbot.send_message(f"Error in autofill: {str(e)}", channel=slackbot.ERROR_CHANNEL)
-        return jsonify({"status": "error", "error": str(e)}), 500
+        # report failures to the bot channel like the old cron job did;
+        # repr keeps the exception type (a bare KeyError str()s to just the key)
+        tb = "".join(traceback.format_exception(e)).strip()
+        slackbot.send_message(
+            f"Error in autofill: {e!r}\n```{tb[-2500:]}```",
+            channel=slackbot.ERROR_CHANNEL,
+        )
+        return jsonify({"status": "error", "error": repr(e)}), 500
     return jsonify({"status": "ok"})
 
 
@@ -67,6 +74,10 @@ def peroxide_check():
     try:
         results = check_peroxides.check_all_classes(rmn)
     except Exception as e:
-        slackbot.send_message(f"Error in check_peroxides: {e}", channel=slackbot.PEROXIDE_CHANNEL)
-        return jsonify({"status": "error", "error": str(e)}), 500
+        tb = "".join(traceback.format_exception(e)).strip()
+        slackbot.send_message(
+            f"Error in check_peroxides: {e!r}\n```{tb[-2500:]}```",
+            channel=slackbot.PEROXIDE_CHANNEL,
+        )
+        return jsonify({"status": "error", "error": repr(e)}), 500
     return jsonify({"status": "ok", "matches": {c: len(m) for c, m in results.items()}})

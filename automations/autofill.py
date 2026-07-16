@@ -47,8 +47,12 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
     if label and config.AUTO_UPLOAD_LABELS:
         create_and_upload_labels(rm, id)
     if type in config.setting("chemical_categories", [2, 3]):  # only chemical-like categories get info/images, default to DDOMLab settings
+        if "metadata" not in item:
+            # newer eLabFTW omits metadata from GET /items list responses,
+            # so batch autofill has to fetch the full item
+            item = rm.get_item(id)
         try:
-            metadata = json.loads(item["metadata"])
+            metadata = json.loads(item["metadata"] or "{}")
         except json.JSONDecodeError:
             raise ValueError(f"Invalid JSON in metadata for item {id}")
 
@@ -110,8 +114,12 @@ def autofill(rm: Resource_Manager, start=0, end=None, force=False, info=True, la
     if you want to edit a range of old Resources, and you set `start` to a very low number,
     you will likely have to set `size` to a higher number in order to pull enough entires to reach the start number
     """
-    items: list[dict] = rm.get_items(size=size)
+    items: list[dict] = rm.get_items(size=size, with_metadata=True)
     for item in items:
         id = item["id"]
         if (end is None and id >= start) or (end is not None and id in range(start, end)):
-            process_item(rm, item, force=force, info=info, label=label, image=image)
+            try:
+                process_item(rm, item, force=force, info=info, label=label, image=image)
+            except Exception as e:
+                e.add_note(f"while processing item {id} ({config.item_web_url(id)})")  # type: ignore # add_note is 3.11+
+                raise

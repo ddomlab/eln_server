@@ -187,6 +187,18 @@ class Resource_Manager:
         )
         return requests.get(url, headers=self.header).json()
 
+    def get_items_type(self, id: int) -> dict[str, Any]:
+        """
+        Gets a single item type template as a dictionary. Unlike the
+        get_items_types() listing, this includes the "metadata" field
+        (eLabFTW >= 5.6 omits it from list responses).
+            :param int id: The ID of the item type to be gotten.
+            :return: A dictionary containing the item type template.
+        """
+        response = self.get_url("/items_types/" + str(id))
+        response.raise_for_status()
+        return response.json()
+
     def get_items_statuses(self) -> list[dict[str, Any]]:
         """
         Gets the team's resource status list from the ELN.
@@ -194,10 +206,11 @@ class Resource_Manager:
         """
         return self.get_url("/teams/current/items_status").json()
 
-    def get_items(self, size:int=15) -> list[object]:
+    def get_items(self, size:int=15, with_metadata:bool=False) -> list[dict[str, Any]]:
         """
         Gets a list of items in the ELN as dictionaries.
             :param int size: The number of items to be gotten. Defaults to 15, setting it too high (~1000) causes it to default back to 15.
+            :param bool with_metadata: Whether to include the "metadata" field on each item, at the cost of a slower query.
             :return: A list of dictionaries containing the items.
         """
         # returns the most recent 15 if a size is not specified
@@ -208,6 +221,11 @@ class Resource_Manager:
             + "/items?limit="
             + str(size)
         )
+        if with_metadata:
+            # eLabFTW >= 5.6 omits "metadata" from plain list responses, but
+            # extended-search results still carry it, so use a query that
+            # matches every item
+            url += "&extended=" + requests.utils.quote("date:>1970-01-01")
         return requests.get(url, headers=self.header).json()
     def get_experiments(self) -> list[object]:
         """
@@ -285,7 +303,7 @@ class Resource_Manager:
                 
             return flat
         
-        df: pd.DataFrame = pd.DataFrame(self.get_items(size))
+        df: pd.DataFrame = pd.DataFrame(self.get_items(size, with_metadata=True))
         df['metadata'] = df['metadata'].apply(self.json_loads)
         metadata: pd.DataFrame = df['metadata'].apply(pd.Series)
         extra_fields_df: pd.DataFrame = metadata['extra_fields'].apply(flatten_extra_fields).apply(pd.Series)

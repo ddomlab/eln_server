@@ -276,10 +276,15 @@ def get_template():
     try:
         # match on the category's id -- list position is not stable across
         # instances (or across deleting/reordering categories)
-        types = rm().get_items_types()
+        rmn = rm()
+        types = rmn.get_items_types()
         template = next((t for t in types if int(t["id"]) == int(cat)), None)
         if template is None:
             return jsonify({"status": "error", "error": f"No resource category with id {cat}"}), 404
+        if "metadata" not in template:
+            # eLabFTW >= 5.6 omits metadata from the items_types listing;
+            # the client needs it to build the form, so fetch the full type
+            template = rmn.get_items_type(int(cat))
         return template
     except Exception as e:
         print("Error initializing Resource_Manager:", e)
@@ -328,8 +333,11 @@ def get_locations():
         types = rmn.get_items_types()
         locations = []
         for t in types:
+            if "metadata" not in t:
+                # eLabFTW >= 5.6 omits metadata from the items_types listing
+                t = rmn.get_items_type(t["id"])
             try:
-                locs = json.loads(t["metadata"])["extra_fields"]["Location"]["options"]
+                locs = json.loads(t["metadata"] or "{}")["extra_fields"]["Location"]["options"]
             except KeyError:
                 locs = []
             # Add only unique locations
