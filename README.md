@@ -6,6 +6,8 @@ repositories into one Flask application: the web interface, the eLab API
 wrapper, and the automations (autofill, label generation, RDKit images,
 peroxide-former Slack reminders) all live here and run through the server.
 
+To install an eLabFTW instance, follow the eLabFTW installation instructions at https://doc.elabftw.net/docs/category/installation/ 
+
 <img width="1904" height="1014" alt="image" src="https://github.com/user-attachments/assets/aec601f7-02c2-4f06-8ca8-97bc39e99d4d" />
 
 ## Features
@@ -36,16 +38,6 @@ peroxide-former Slack reminders) all live here and run through the server.
 | `client/` | Optional systemd timer client that calls the automation API on a schedule |
 | `deploy/` | systemd unit for running the server with gunicorn |
 
-## Authentication
-
-Generate keys using eLabFTW (https://doc.elabftw.net/docs/usage/api/). 
-
-Actions taken through the web interface (creating resources, marking open/empty, changing location, etc.) use a user-provided API key, stored as a cookie on-device. This provides authentication for user-prompted actions.
-
-Automated actions executed by the services in `client/`, as well as the one-off maintenance scripts stored in `scripts/` use the key provided in `secrets.yaml`. 
-A generic "Automations" ELN account can be created and managed by an admin to generate API keys for these actions (that way they are not tied to a specific user).
-The Slack bot token is also server-side: set `slack_bot_token` in `secrets.yaml`.
-
 ## Configuration
 
 Server settings live in `config.yaml` at the repo root (relative paths resolve
@@ -65,6 +57,16 @@ file exists and picks up changes without a restart.
 Slack reporting is off unless `slack_enabled: true` is set in `config.yaml`,
 with your workspace's channel IDs under `slack_channels` (see `config-ex.yaml`);
 when disabled, the automations write their reports to the server log instead.
+
+## Authentication
+
+Generate keys using eLabFTW (https://doc.elabftw.net/docs/usage/api/). 
+
+Actions taken through the web interface (creating resources, marking open/empty, changing location, etc.) use a user-provided API key, stored as a cookie on-device. This provides authentication for user-prompted actions.
+
+Automated actions executed by the services in `client/`, as well as the one-off maintenance scripts stored in `scripts/` use the key provided in `secrets.yaml`. 
+A generic "Automations" ELN account can be created and managed by an admin to generate API keys for these actions (that way they are not tied to a specific user).
+The Slack bot token is also server-side: set `slack_bot_token` in `secrets.yaml`.
 
 ## Automation API
 
@@ -107,7 +109,7 @@ sudo systemctl enable --now eln-server
 
 ### PTH blueprint
 
-The PTH tracker is a separate project (https://github.com/ddomlab/pth_analysis). If it is available in the environment, it is started on the `/pth` endpoint, otherwise it is ignored
+The PTH tracker is a separate project (https://github.com/ddomlab/pth_analysis). If it is available in the environment, it is started on the `/pth` endpoint, otherwise it is ignored.
 
 ## Timed automations (optional client)
 
