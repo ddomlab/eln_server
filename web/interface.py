@@ -291,6 +291,48 @@ def get_template():
         return jsonify({"status": "error", "error": str(e)}), 400
 
 
+@interface_bp.route('/add_option', methods=['POST'])
+@cross_origin(origins="http://localhost:8000")
+def add_option():
+    """Appends an option to a select extra field in a category's template, so
+    a value typed under "Other" becomes a real choice for future resources.
+    Expects {category, field, option}. Note eLabFTW only lets team admins edit
+    templates, so this fails with the eLN's error for everyone else."""
+    data = request.get_json(force=True)
+    field = data.get('field')
+    option = str(data.get('option') or "").strip()
+    try:
+        category = int(data.get('category'))
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "error": "Invalid category id"}), 400
+    if not field or not option:
+        return jsonify({"status": "error", "error": "Both 'field' and 'option' are required"}), 400
+
+    try:
+        rmn = rm()
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+
+    try:
+        template = rmn.get_items_type(category)
+        metadata = json.loads(template.get("metadata") or "{}")
+        field_def = metadata.get("extra_fields", {}).get(field)
+        if field_def is None:
+            return jsonify({"status": "error",
+                            "error": f"Category {category} has no extra field named '{field}'"}), 404
+        if field_def.get("type") != "select":
+            return jsonify({"status": "error",
+                            "error": f"Field '{field}' is not a select field"}), 400
+        options = field_def.setdefault("options", [])
+        if option not in options:
+            options.append(option)
+            rmn.change_items_type(category, {"metadata": json.dumps(metadata)})
+        return jsonify({"status": "ok", "options": options})
+    except Exception as e:
+        print("Error adding option to template:", e)
+        return jsonify({"status": "error", "error": str(e)}), 400
+
+
 def _autofill_in_background(rmn: Resource_Manager, item_id: int):
     """Runs the autofill steps on a newly created item without blocking the response."""
     def target():

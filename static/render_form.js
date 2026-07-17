@@ -1,4 +1,6 @@
 const BASE_URL = ""; // adjust as needed
+// select value meaning "the user typed their own value in the Other box"
+const OTHER_SENTINEL = "__other__";
 const formEl = document.getElementById("generated-form");
 let currentFields = [];
 let elnWebUrl = ""; // the lab's eLabFTW web UI, served by /eln_config
@@ -23,7 +25,11 @@ function getFinalOutput() {
   const extra_fields = {};
   currentFields.forEach(([key, field]) => {
     const copy = structuredClone(field);
-    copy.value = formData.get(key) || "";
+    let value = formData.get(key) || "";
+    if (value === OTHER_SENTINEL) {
+      value = (formData.get(`${key}__other`) || "").trim();
+    }
+    copy.value = value;
     extra_fields[key] = copy;
   });
   return {
@@ -32,6 +38,21 @@ function getFinalOutput() {
     category: parseInt(formData.get("category"), 10) || null,
     extra_fields,
   };
+}
+
+function getOptionAdditions() {
+  // Fields where "Other" is selected with "Add to options?" checked:
+  // [{field, option}] to send to /add_option so the template learns them.
+  const formData = new FormData(formEl);
+  const additions = [];
+  currentFields.forEach(([key, field]) => {
+    if (field.type !== "select") return;
+    if (formData.get(key) !== OTHER_SENTINEL) return;
+    if (!formData.get(`${key}__addopt`)) return;
+    const option = (formData.get(`${key}__other`) || "").trim();
+    if (option) additions.push({ field: key, option });
+  });
+  return additions;
 }
 
 function fetchTemplate(category) {
@@ -245,6 +266,8 @@ function buildFormFromJson(jsonData) {
     wrapper.append(label);
 
     let input;
+    let otherControls = null; // "Other" text box + "Add to options?" checkbox (selects only)
+    let applySelectValue = null; // sets a select's value, routing unknown values to "Other"
     if (field.type === "select") {
       input = document.createElement("select");
       (field.options || []).forEach((opt) => {
@@ -253,6 +276,54 @@ function buildFormFromJson(jsonData) {
         o.textContent = opt;
         input.append(o);
       });
+      const otherOption = document.createElement("option");
+      otherOption.value = OTHER_SENTINEL;
+      otherOption.textContent = "Other…";
+      input.append(otherOption);
+
+      const otherInput = document.createElement("input");
+      otherInput.type = "text";
+      otherInput.name = `${key}__other`;
+      otherInput.placeholder = "Enter other value";
+      otherInput.disabled = true;
+
+      const addLabel = document.createElement("label");
+      addLabel.style.fontWeight = "normal";
+      addLabel.style.whiteSpace = "nowrap";
+      const addCheckbox = document.createElement("input");
+      addCheckbox.type = "checkbox";
+      addCheckbox.name = `${key}__addopt`;
+      addCheckbox.disabled = true;
+      addLabel.append(addCheckbox, document.createTextNode(" Add to options?"));
+
+      otherControls = document.createElement("div");
+      otherControls.style.display = "none";
+      otherControls.style.gap = "0.5em";
+      otherControls.style.alignItems = "center";
+      otherControls.append(otherInput, addLabel);
+
+      const syncOtherVisibility = () => {
+        const isOther = input.value === OTHER_SENTINEL;
+        otherControls.style.display = isOther ? "flex" : "none";
+        // disabled inputs stay out of FormData and skip validation
+        otherInput.disabled = !isOther;
+        addCheckbox.disabled = !isOther;
+        otherInput.required = isOther && !!field.required;
+      };
+      input.addEventListener("change", () => {
+        syncOtherVisibility();
+        if (input.value === OTHER_SENTINEL) otherInput.focus();
+      });
+
+      applySelectValue = (value) => {
+        input.value = value;
+        if (value && input.value !== value) {
+          // value isn't one of the options: it came from "Other"
+          input.value = OTHER_SENTINEL;
+          otherInput.value = value;
+        }
+        syncOtherVisibility();
+      };
     } else if (field.type === "date") {
       input = document.createElement("input");
       input.type = "date";
@@ -278,10 +349,12 @@ function buildFormFromJson(jsonData) {
 
     input.id = key;
     input.name = key;
-    input.value = field.value || "";
+    if (applySelectValue) applySelectValue(field.value || "");
+    else input.value = field.value || "";
     if (field.required) input.required = true;
 
     if (field.type !== "date") wrapper.append(input);
+    if (otherControls) wrapper.append(otherControls);
 
     if (field.type === "number") {
       input.type = "number";
@@ -345,6 +418,7 @@ function buildFormFromJson(jsonData) {
     // Continue normal submission
     alert(JSON.stringify(getFinalOutput(), null, 2));
     const payload = getFinalOutput();
+    const optionAdditions = getOptionAdditions();
 
     fetch(`${BASE_URL}/add_resource`, {
       method: "POST",
@@ -361,8 +435,30 @@ function buildFormFromJson(jsonData) {
       .then((responseData) => {
         console.log("Submission succeeded:", responseData);
         // alert("Form submitted successfully.");
-        location.reload();
+        if (optionAdditions.length === 0) return;
+        // The resource exists now; teach the category template the new options
+        return Promise.all(
+          optionAdditions.map((a) =>
+            fetch(`${BASE_URL}/add_option`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ category: payload.category, ...a }),
+              credentials: "same-origin",
+            }).then((r) => {
+              if (!r.ok)
+                return r.json().then((d) => {
+                  throw new Error(d.error || `Server responded with ${r.status}`);
+                });
+            })
+          )
+        ).catch((err) => {
+          console.error("Option update error:", err);
+          alert(
+            `Resource was created, but adding the new option(s) to the template failed: ${err.message}`
+          );
+        });
       })
+      .then(() => location.reload())
       .catch((err) => {
         console.error("Submission error:", err);
         alert("Error submitting form.");

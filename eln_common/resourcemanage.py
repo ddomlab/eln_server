@@ -37,6 +37,13 @@ class Resource_Manager:
         """
         url = config.URL + url
         return requests.get(url, headers=self.header)
+    def patch_url(self,url:str,json:dict|None=None) -> requests.Response:
+        """
+        Sends a PATCH request to the ELN with the given URL. Used for more manual processes.
+            :param str url: The URL to be patched.
+        """
+        url = config.URL + url
+        return requests.patch(url, headers=self.header, json=json)
     def create_item(self, category: int, body_dict: dict[str, Any]) -> int:
         """
         Creates an item in the ELN with the given category and body_dict.
@@ -198,6 +205,16 @@ class Resource_Manager:
         response = self.get_url("/items_types/" + str(id))
         response.raise_for_status()
         return response.json()
+
+    def change_items_type(self, id: int, body_dict: dict[str, Any]) -> None:
+        """
+        Changes the item type template with the given ID to the given body_dict.
+        Note that eLabFTW only lets team admins edit item types.
+            :param int id: The ID of the item type to be changed.
+            :param dict body_dict: The fields to change (e.g. {"metadata": "..."}).
+        """
+        response = self.patch_url("/items_types/" + str(id), json=body_dict)
+        response.raise_for_status()
 
     def get_items_statuses(self) -> list[dict[str, Any]]:
         """

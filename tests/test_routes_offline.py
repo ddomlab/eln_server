@@ -111,6 +111,27 @@ class TestInputValidation:
         resp = client.post("/add_resource", json={"title": "no other fields"})
         assert resp.status_code == 400
 
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"field": "Location", "option": "Shelf 9"},  # no category
+            {"category": "x", "field": "Location", "option": "Shelf 9"},
+            {"category": 2, "option": "Shelf 9"},  # no field
+            {"category": 2, "field": "Location"},  # no option
+            {"category": 2, "field": "Location", "option": "   "},
+        ],
+    )
+    def test_add_option_invalid_body_rejected(self, client, body):
+        resp = client.post("/add_option", json=body)
+        assert resp.status_code == 400
+        assert resp.get_json()["status"] == "error"
+
+    def test_add_option_without_key_errors(self, client):
+        resp = client.post(
+            "/add_option", json={"category": 2, "field": "Location", "option": "Shelf 9"}
+        )
+        assert resp.status_code == 401
+
 
 class TestSearchProcessHelpers:
     TEMPLATE = {

@@ -5,7 +5,8 @@ Two kinds of tests:
   - offline: routing, auth plumbing, and input validation; no eLN key needed.
   - live (marked @pytest.mark.live): run against the real eLabFTW server as the
     key found via $ELN_TEST_API_KEY, or the ELN_API_KEY entry in the yaml file
-    at $ELN_TEST_API_KEY_FILE. Live tests only touch resource TEST_ITEM_ID and
+    at $ELN_TEST_API_KEY_FILE (default: config.yaml at the project root).
+    Live tests only touch resource TEST_ITEM_ID and
     restore its state afterwards.
 
 Slack is stubbed out for every test so a failing run can never post to the lab
@@ -24,7 +25,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # The one resource the suite is allowed to modify.
 TEST_ITEM_ID = 393
 
-DEFAULT_KEY_FILE = "/home/kyle/Desktop/DDOM/MEDUSA/code/MEDUSA/config/apikey.yaml"
+DEFAULT_KEY_FILE = str(PROJECT_ROOT / "config.yaml")
 KEY_TAG = "ELN_API_KEY"
 
 
@@ -37,8 +38,10 @@ def _load_api_key() -> str | None:
         import yaml
         with open(path) as f:
             data = yaml.safe_load(f)
-        if isinstance(data, dict) and data.get(KEY_TAG):
-            return data[KEY_TAG]
+        if isinstance(data, dict):
+            for tag in (KEY_TAG, KEY_TAG.lower()):
+                if data.get(tag):
+                    return data[tag]
     except (FileNotFoundError, ImportError):
         pass
     # fall back to the project's own secrets.yaml
