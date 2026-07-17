@@ -20,16 +20,16 @@ def create_and_upload_labels(rm: Resource_Manager, id: int):
     rm.upload_file(id, str(labelgen.path))
 
 
-def check_and_fill_image(rm: Resource_Manager, smiles: str, id: int):
+def check_and_fill_image(rm: Resource_Manager, smiles: str, id: int, force=False):
     ## upload RDKit image if it isn't there
     files = rm.get_uploaded_files(id)
     for file in files:
         if file.to_dict()["real_name"] == "RDKitImage.png":
-            print("Image already exists")
-            rm.delete_upload(
-                id, file.to_dict()["id"]
-            )  # delete the old image, turn off usually
-            # return # if the image already exists, don't upload it again
+            if not force:
+                print("Image already exists")
+                return
+            # regenerating: delete the old image first (needs write access to the item)
+            rm.delete_upload(id, file.to_dict()["id"])
     if smiles != "":
         imagepath = ig.generate_image(smiles)
         print(imagepath)
@@ -77,7 +77,7 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
             if image:
                 try:
                     smiles: str = metadata["extra_fields"]["SMILES"]["value"]
-                    check_and_fill_image(rm, smiles, id)
+                    check_and_fill_image(rm, smiles, id, force=force)
                 except KeyError:
                     print(f"No SMILES found for item {id}")
                 except ValueError:
