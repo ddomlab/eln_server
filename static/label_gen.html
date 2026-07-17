@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Form Submission</title>
+    <title>Custom Label Generator</title>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap");
       * {
@@ -132,6 +132,48 @@
         font-weight: bold;
         color: #111;
       }
+
+      #qr-content-input-wrapper {
+        position: relative;
+      }
+
+      #resource-dropdown {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: #fff;
+        border: 2px solid #000;
+        border-top: none;
+        box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.4);
+        max-height: 220px;
+        overflow-y: auto;
+        z-index: 10;
+      }
+
+      #resource-dropdown.visible {
+        display: block;
+      }
+
+      .resource-dropdown-item {
+        padding: 0.5em 0.75em;
+        cursor: pointer;
+        border-bottom: 1px solid #ddd;
+      }
+
+      .resource-dropdown-item:last-child {
+        border-bottom: none;
+      }
+
+      .resource-dropdown-item:hover {
+        background: #eee;
+      }
+
+      .resource-dropdown-empty {
+        padding: 0.5em 0.75em;
+        color: #666;
+      }
     </style>
   </head>
   <body>
@@ -189,11 +231,16 @@
         <select id="qrContentType" name="qrContentType">
           <option value="Text">Text</option>
           <option value="Resource">Resource</option>
+          <option value="Location">Location</option>
         </select>
       </div>
       <div class="field" id="qr-content-field">
-        <label for="text">QR Content/Resource ID</label>
-        <input type="text" id="codecontent" name="text" />
+        <label for="codecontent" id="qr-content-label">QR Content</label>
+        <div id="qr-content-input-wrapper">
+          <input type="text" id="codecontent" name="text" autocomplete="off" />
+          <div id="resource-dropdown"></div>
+        </div>
+        <datalist id="location-options"></datalist>
       </div>
 
       <button type="submit">Submit</button>
@@ -212,11 +259,161 @@
         if (this.value === "QR Code") {
           qrContentField.style.display = "block";
           qrContentTypeField.style.display = "block";
+          applyQrContentType();
         } else {
           qrContentField.style.display = "none";
           qrContentTypeField.style.display = "none";
           qrContentField.querySelector("input").value = ""; // Clear QR content field
+          hideResourceDropdown();
         }
+      });
+
+      // ── QR content type handling ────────────────────────────────────────
+      const qrContentTypeSelect = document.getElementById("qrContentType");
+      const qrContentLabel = document.getElementById("qr-content-label");
+      const codeContentInput = document.getElementById("codecontent");
+
+      function applyQrContentType() {
+        hideResourceDropdown();
+        const type = qrContentTypeSelect.value;
+        if (type === "Location") {
+          qrContentLabel.textContent = "Location";
+          codeContentInput.setAttribute("list", "location-options");
+          loadLocations();
+        } else {
+          codeContentInput.removeAttribute("list");
+          qrContentLabel.textContent =
+            type === "Resource" ? "Resource ID (type to search)" : "QR Content";
+        }
+      }
+      qrContentTypeSelect.addEventListener("change", () => {
+        codeContentInput.value = "";
+        applyQrContentType();
+      });
+
+      // ── location suggestions (free text allowed) ────────────────────────
+      let locationsLoaded = false;
+      async function loadLocations() {
+        if (locationsLoaded) return;
+        locationsLoaded = true;
+        try {
+          const r = await fetch("/get_locations");
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const locs = await r.json();
+          const datalist = document.getElementById("location-options");
+          datalist.innerHTML = "";
+          (Array.isArray(locs) ? locs : []).forEach((loc) => {
+            const opt = document.createElement("option");
+            opt.value = loc;
+            datalist.appendChild(opt);
+          });
+        } catch (e) {
+          locationsLoaded = false; // allow a retry next time
+          console.error("Failed to load locations:", e);
+        }
+      }
+
+      // ── resource lookup dropdown ────────────────────────────────────────
+      const RESOURCE_SEARCH_DEBOUNCE_MS = 350;
+      const resourceDropdown = document.getElementById("resource-dropdown");
+      let resourceDebounceTimer = null;
+      let resourceAbortController = null;
+      let resourceItems = [];
+
+      function isIntegerString(s) {
+        return /^\d+$/.test(s);
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function renderResourceDropdown(items) {
+        resourceItems = items;
+        resourceDropdown.innerHTML = items.length
+          ? items
+              .map(
+                (res, i) =>
+                  `<div class="resource-dropdown-item" data-index="${i}">${escapeHtml(
+                    String(res.id)
+                  )} - ${escapeHtml(res.title ?? "")}</div>`
+              )
+              .join("")
+          : '<div class="resource-dropdown-empty">No matches</div>';
+        resourceDropdown.classList.add("visible");
+      }
+
+      function hideResourceDropdown() {
+        resourceDropdown.classList.remove("visible");
+        resourceItems = [];
+      }
+
+      async function fetchResources(query) {
+        if (resourceAbortController) resourceAbortController.abort();
+        resourceAbortController = new AbortController();
+
+        const url = query
+          ? `/resources?q=${encodeURIComponent(query)}`
+          : "/resources";
+
+        try {
+          const r = await fetch(url, {
+            signal: resourceAbortController.signal,
+          });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const data = await r.json();
+          renderResourceDropdown(Array.isArray(data) ? data : []);
+        } catch (e) {
+          if (e.name !== "AbortError") {
+            resourceDropdown.innerHTML =
+              '<div class="resource-dropdown-empty">Failed to load resources</div>';
+            resourceDropdown.classList.add("visible");
+          }
+        }
+      }
+
+      function scheduleResourceSearch(query) {
+        clearTimeout(resourceDebounceTimer);
+        resourceDebounceTimer = setTimeout(
+          () => fetchResources(query),
+          RESOURCE_SEARCH_DEBOUNCE_MS
+        );
+      }
+
+      codeContentInput.addEventListener("input", () => {
+        if (qrContentTypeSelect.value !== "Resource") return;
+        const val = codeContentInput.value.trim();
+        clearTimeout(resourceDebounceTimer);
+
+        if (isIntegerString(val)) {
+          // Manual/scanned ID entry — no lookup needed.
+          hideResourceDropdown();
+        } else {
+          scheduleResourceSearch(val);
+        }
+      });
+
+      codeContentInput.addEventListener("focus", () => {
+        if (qrContentTypeSelect.value !== "Resource") return;
+        const val = codeContentInput.value.trim();
+        if (!isIntegerString(val)) fetchResources(val);
+      });
+
+      codeContentInput.addEventListener("blur", () => {
+        // Delay so a click on a dropdown item registers before it disappears.
+        setTimeout(hideResourceDropdown, 150);
+      });
+
+      resourceDropdown.addEventListener("mousedown", (e) => {
+        const item = e.target.closest(".resource-dropdown-item");
+        if (!item) return;
+        e.preventDefault(); // keep focus on the input instead of triggering blur first
+        e.stopPropagation();
+        const res = resourceItems[Number(item.dataset.index)];
+        if (res) codeContentInput.value = res.id;
+        hideResourceDropdown();
       });
       document.addEventListener("keydown", function (event) {
         if (event.key === "$") {

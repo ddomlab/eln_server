@@ -101,6 +101,20 @@ def get_experiments():
         return jsonify({"status": "error", "error": str(e)}), 400
 
 
+@interface_bp.route('/resources', methods=['GET'])
+@cross_origin(origins="http://localhost:8000")
+def get_resources():
+    """Resources matching ?q= (or the most recent ones) as [{id, title}],
+    for the label generator's resource-ID search dropdown."""
+    try:
+        items = rm().search_items(request.args.get('q', ''))
+        return jsonify([{"id": i["id"], "title": i["title"]} for i in items])
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 400
+
+
 @interface_bp.route('/settings', methods=['GET', 'POST'])
 @cross_origin(origins="http://localhost:8000")
 def settings():
@@ -141,6 +155,9 @@ def create_label():
 
     if qr_type == "Resource":
         qr_content = config.item_web_url(qr_content)
+    elif qr_type == "Location":
+        # the registry scanner recognizes "LOCATION=<name>" codes
+        qr_content = "LOCATION=" + (qr_content or "")
     if icon == "QR Code":
         icon = None
     if icon == "None":

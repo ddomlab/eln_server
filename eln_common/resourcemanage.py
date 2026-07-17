@@ -261,6 +261,16 @@ class Resource_Manager:
         response.raise_for_status()
         return response.json()
 
+    def search_items(self, query: str = "") -> list[dict[str, Any]]:
+        """
+        Searches resources in the ELN by title/body text.
+            :param str query: The search string; empty returns the most recent items.
+            :return: A list of dictionaries containing the matching items.
+        """
+        response = self.get_url("/items?q=" + requests.utils.quote(query))
+        response.raise_for_status()
+        return response.json()
+
     def get_uploaded_files(self, id:int, resource_type:str="items") -> list:
         """
         Gets a list of uploaded files in the ELN with the given ID.
