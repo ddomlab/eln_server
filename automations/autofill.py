@@ -1,5 +1,7 @@
 import json
 
+import pubchempy as pcp
+
 import automations.image_generator as ig
 import automations.slackbot as slackbot
 from automations.labels.generate_label import LabelGenerator
@@ -62,6 +64,12 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
                 try:
                     fill_info.fill_in(rm, id)
                     rm.add_tag(id, "Autofilled")
+                except pcp.PubChemHTTPError as e:
+                    if e.code < 500:
+                        raise
+                    # PubChem outage/hiccup: skip quietly. The item stays
+                    # untagged, so the next scheduled run retries it.
+                    print(f"PubChem unavailable ({e}), skipping info fill for item {id}")
                 except ValueError as e:
                     if "Null molecule" in str(e):
                         slackbot.send_message(f"Invalid SMILES provided in SMILES field for item {id}. See {config.item_web_url(id)}")
@@ -115,6 +123,7 @@ def autofill(rm: Resource_Manager, start=0, end=None, force=False, info=True, la
     you will likely have to set `size` to a higher number in order to pull enough entires to reach the start number
     """
     items: list[dict] = rm.get_items(size=size, with_metadata=True)
+    failures: list[Exception] = []
     for item in items:
         id = item["id"]
         if (end is None and id >= start) or (end is not None and id in range(start, end)):
@@ -122,4 +131,7 @@ def autofill(rm: Resource_Manager, start=0, end=None, force=False, info=True, la
                 process_item(rm, item, force=force, info=info, label=label, image=image)
             except Exception as e:
                 e.add_note(f"while processing item {id} ({config.item_web_url(id)})")  # type: ignore # add_note is 3.11+
-                raise
+                failures.append(e)
+    if failures:
+        # every item still got its turn; report what failed in one exception
+        raise ExceptionGroup(f"autofill failed on {len(failures)} item(s)", failures)

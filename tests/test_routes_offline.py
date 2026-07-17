@@ -5,9 +5,12 @@ None of these need an eLN API key or network access.
 
 import json
 import threading
+from types import SimpleNamespace
 
+import pubchempy as pcp
 import pytest
 
+import automations.autofill as autofill
 import web.interface as interface
 import web.search_process as search_process
 from automations.labels.generate_label import LabelGenerator
@@ -365,6 +368,63 @@ class TestAddResourceAutofill:
         # the autofill runs on a background thread right after creation
         assert autofilled.wait(timeout=2), "autofill was not triggered by /add_resource"
         assert autofill_calls == [999]
+
+
+class TestAutofillResilience:
+    """PubChem outages are soft skips, and one bad item can't spoil a batch."""
+
+    @staticmethod
+    def _item(id):
+        return {
+            "id": id,
+            "category": 2,
+            "tags": None,
+            "metadata": json.dumps({"extra_fields": {}}),
+        }
+
+    def _rm(self, tags):
+        return SimpleNamespace(
+            is_item_busy=lambda id: False,
+            get_item=self._item,
+            add_tag=lambda id, tag: tags.append(tag),
+            get_items=lambda size, with_metadata: [self._item(i) for i in (1, 2, 3)],
+        )
+
+    @pytest.fixture(autouse=True)
+    def default_settings(self, monkeypatch):
+        # pin chemical_categories etc. to their defaults regardless of config.yaml
+        monkeypatch.setattr(autofill.config, "setting", lambda key, default=None: default)
+
+    def test_pubchem_5xx_soft_skips_info_fill(self, monkeypatch):
+        def outage(rm, id):
+            raise pcp.PubChemHTTPError(502, "Bad Gateway", [])
+        monkeypatch.setattr(autofill.fill_info, "fill_in", outage)
+        tags = []
+        # must not raise...
+        autofill.process_item(self._rm(tags), self._item(1), label=False, image=False)
+        # ...and must leave the item untagged so the next run retries it
+        assert "Autofilled" not in tags
+
+    def test_pubchem_4xx_still_raises(self, monkeypatch):
+        def bad_request(rm, id):
+            raise pcp.BadRequestError(400, "Bad Request", [])
+        monkeypatch.setattr(autofill.fill_info, "fill_in", bad_request)
+        with pytest.raises(pcp.PubChemHTTPError):
+            autofill.process_item(self._rm([]), self._item(1), label=False, image=False)
+
+    def test_batch_continues_past_failing_item(self, monkeypatch):
+        processed = []
+
+        def fake_process(rm, item, **kwargs):
+            processed.append(item["id"])
+            if item["id"] == 2:
+                raise RuntimeError("boom")
+        monkeypatch.setattr(autofill, "process_item", fake_process)
+        with pytest.raises(ExceptionGroup) as excinfo:
+            autofill.autofill(self._rm([]))
+        assert processed == [1, 2, 3]
+        assert len(excinfo.value.exceptions) == 1
+        assert "item 2" in "".join(excinfo.value.exceptions[0].__notes__)
 
 
 class TestCreateLabel:
