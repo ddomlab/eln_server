@@ -267,6 +267,7 @@ function buildFormFromJson(jsonData) {
 
     let input;
     let otherControls = null; // "Other" text box + "Add to options?" checkbox (selects only)
+    let otherNote = null; // shown while "Add to options?" is checked
     let applySelectValue = null; // sets a select's value, routing unknown values to "Other"
     if (field.type === "select") {
       input = document.createElement("select");
@@ -315,6 +316,12 @@ function buildFormFromJson(jsonData) {
       otherControls.style.marginTop = "0.5em";
       otherControls.append(otherInput, addLabel);
 
+      otherNote = document.createElement("div");
+      otherNote.className = "description";
+      otherNote.style.display = "none";
+      otherNote.textContent =
+        "Only adds the option for the selected category (e.g. Chemical Compound locations are managed independently from Polymer locations).";
+
       const syncOtherVisibility = () => {
         const isOther = input.value === OTHER_SENTINEL;
         otherControls.style.display = isOther ? "flex" : "none";
@@ -322,7 +329,9 @@ function buildFormFromJson(jsonData) {
         otherInput.disabled = !isOther;
         addCheckbox.disabled = !isOther;
         otherInput.required = isOther && !!field.required;
+        otherNote.style.display = isOther && addCheckbox.checked ? "" : "none";
       };
+      addCheckbox.addEventListener("change", syncOtherVisibility);
       input.addEventListener("change", () => {
         syncOtherVisibility();
         if (input.value === OTHER_SENTINEL) otherInput.focus();
@@ -367,7 +376,7 @@ function buildFormFromJson(jsonData) {
     if (field.required) input.required = true;
 
     if (field.type !== "date") wrapper.append(input);
-    if (otherControls) wrapper.append(otherControls);
+    if (otherControls) wrapper.append(otherControls, otherNote);
 
     if (field.type === "number") {
       input.type = "number";
@@ -410,10 +419,6 @@ function buildFormFromJson(jsonData) {
   formEl.append(submit);
   formEl.onsubmit = (e) => {
     e.preventDefault();
-    // alert(JSON.stringify(getFinalOutput(), null, 2));
-  };
-  formEl.onsubmit = (e) => {
-    e.preventDefault();
 
     // Custom conditional requirement: one of Mw or Mn must be filled
     const mwInput = formEl.querySelector('[name="Mw"]');
@@ -429,7 +434,6 @@ function buildFormFromJson(jsonData) {
     }
 
     // Continue normal submission
-    alert(JSON.stringify(getFinalOutput(), null, 2));
     const payload = getFinalOutput();
     const optionAdditions = getOptionAdditions();
 
