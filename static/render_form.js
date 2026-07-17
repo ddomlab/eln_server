@@ -286,20 +286,33 @@ function buildFormFromJson(jsonData) {
       otherInput.name = `${key}__other`;
       otherInput.placeholder = "Enter other value";
       otherInput.disabled = true;
+      // let the flex row shrink the input instead of overflowing the wrapper
+      otherInput.style.flex = "1 1 auto";
+      otherInput.style.minWidth = "0";
+      otherInput.style.width = "auto";
 
       const addLabel = document.createElement("label");
       addLabel.style.fontWeight = "normal";
       addLabel.style.whiteSpace = "nowrap";
+      addLabel.style.display = "flex";
+      addLabel.style.alignItems = "center";
+      addLabel.style.gap = "0.4em";
+      addLabel.style.marginBottom = "0";
       const addCheckbox = document.createElement("input");
       addCheckbox.type = "checkbox";
       addCheckbox.name = `${key}__addopt`;
       addCheckbox.disabled = true;
+      // opt out of the page's full-width/padded input styling
+      addCheckbox.style.width = "auto";
+      addCheckbox.style.boxShadow = "none";
+      addCheckbox.style.padding = "0";
       addLabel.append(addCheckbox, document.createTextNode(" Add to options?"));
 
       otherControls = document.createElement("div");
       otherControls.style.display = "none";
       otherControls.style.gap = "0.5em";
       otherControls.style.alignItems = "center";
+      otherControls.style.marginTop = "0.5em";
       otherControls.append(otherInput, addLabel);
 
       const syncOtherVisibility = () => {
