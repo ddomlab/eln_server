@@ -427,6 +427,55 @@ class TestAutofillResilience:
         assert "item 2" in "".join(excinfo.value.exceptions[0].__notes__)
 
 
+class TestAutofillSkipRules:
+    """Each item is autofilled once: the scheduled run must not keep re-filling
+    items it already tagged, which rewrote them every 10 minutes."""
+
+    @staticmethod
+    def _item(tags):
+        return {"id": 1, "category": 2, "tags": tags,
+                "metadata": json.dumps({"extra_fields": {}})}
+
+    @pytest.fixture(autouse=True)
+    def default_settings(self, monkeypatch):
+        monkeypatch.setattr(autofill.config, "setting", lambda key, default=None: default)
+
+    @pytest.fixture()
+    def filled(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(autofill.fill_info, "fill_in", lambda rm, id: calls.append(id))
+        return calls
+
+    def _run(self, tags, force=False):
+        added = []
+        rm = SimpleNamespace(is_item_busy=lambda id: False,
+                             add_tag=lambda id, tag: added.append(tag))
+        autofill.process_item(rm, self._item(tags), force=force, label=False, image=False)
+        return added
+
+    def test_untagged_item_is_filled_and_tagged(self, filled):
+        assert self._run(None) == ["Autofilled"]
+        assert filled == [1]
+
+    @pytest.mark.parametrize("tags", ["Autofilled", "Skip Autofill", "UV-Vis|Autofilled"])
+    def test_tagged_item_is_left_alone(self, filled, tags):
+        assert self._run(tags) == []
+        assert filled == []
+
+    def test_other_tags_do_not_block_fill(self, filled):
+        self._run("UV-Vis|PRF")
+        assert filled == [1]
+
+    def test_force_refills_autofilled_item(self, filled):
+        self._run("Autofilled", force=True)
+        assert filled == [1]
+
+    def test_item_tags_parses_elabftw_format(self):
+        assert autofill.item_tags({"tags": "a|b"}) == {"a", "b"}
+        assert autofill.item_tags({"tags": None}) == set()
+        assert autofill.item_tags({}) == set()
+
+
 class TestCreateLabel:
     def test_create_label_returns_pdf(self, client):
         resp = client.post(
