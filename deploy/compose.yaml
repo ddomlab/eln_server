@@ -1,0 +1,44 @@
+# eln_server on the lab server (run from this folder).
+#
+#   cp ../config-ex.yaml ../config.yaml               # then set eln_url, eln_web_url, IDs
+#   cp ../secrets.example.yaml ../secrets.yaml && chmod 600 ../secrets.yaml   # then fill in
+#   docker compose up -d --build
+#
+# The edge proxy (Caddy) reaches this container over the shared "lab-net" network at
+# http://eln-server:5000. The 127.0.0.1:5001 port is only for the timer client on this
+# host (client/): it isn't reachable from outside the server.
+name: eln-server
+
+services:
+  eln-server:
+    build: ..
+    image: eln-server:local
+    container_name: eln-server
+    restart: unless-stopped            # restart after crashes/reboots, unless you stopped it on purpose
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+    mem_limit: 512m                    # one worker uses ~160 MB; protects eLabFTW on a 2 GB server
+    ports:
+      - "127.0.0.1:5001:5000"
+    volumes:
+      # both files must exist before the first start; without create_host_path: false,
+      # Docker would silently create empty folders in their place
+      - type: bind
+        source: ../config.yaml         # the settings page writes team IDs back to this file
+        target: /app/config.yaml
+        bind: { create_host_path: false }
+      - type: bind
+        source: ../secrets.yaml
+        target: /app/secrets.yaml
+        read_only: true
+        bind: { create_host_path: false }
+    networks:
+      - lab-net
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  lab-net:
+    # created once on the server with: docker network create lab-net
+    external: true
