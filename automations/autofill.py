@@ -70,6 +70,8 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
                 try:
                     fill_info.fill_in(rm, id)
                     rm.add_tag(id, "Autofilled")
+                    # the fill may have just set the SMILES, so the image step needs the updated fields
+                    metadata = json.loads(rm.get_item(id)["metadata"] or "{}")
                 except pcp.PubChemHTTPError as e:
                     if e.code < 500:
                         raise

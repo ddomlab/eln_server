@@ -446,11 +446,14 @@ class TestAutofillSkipRules:
         monkeypatch.setattr(autofill.fill_info, "fill_in", lambda rm, id: calls.append(id))
         return calls
 
-    def _run(self, tags, force=False):
+    def _run(self, tags, force=False, image=False):
         added = []
+        # after the fill, the item has the SMILES that PubChem supplied
+        filled_item = {"metadata": json.dumps({"extra_fields": {"SMILES": {"value": "CCO"}}})}
         rm = SimpleNamespace(is_item_busy=lambda id: False,
-                             add_tag=lambda id, tag: added.append(tag))
-        autofill.process_item(rm, self._item(tags), force=force, label=False, image=False)
+                             add_tag=lambda id, tag: added.append(tag),
+                             get_item=lambda id: filled_item)
+        autofill.process_item(rm, self._item(tags), force=force, label=False, image=image)
         return added
 
     def test_untagged_item_is_filled_and_tagged(self, filled):
@@ -469,6 +472,15 @@ class TestAutofillSkipRules:
     def test_force_refills_autofilled_item(self, filled):
         self._run("Autofilled", force=True)
         assert filled == [1]
+
+    def test_image_uses_smiles_from_the_same_fill(self, filled, monkeypatch):
+        # the item starts without a SMILES; since it is autofilled only once,
+        # the image has to come from the SMILES that this pass filled in
+        images = []
+        monkeypatch.setattr(autofill, "check_and_fill_image",
+                            lambda rm, smiles, id, force=False: images.append(smiles))
+        self._run(None, image=True)
+        assert images == ["CCO"]
 
     def test_item_tags_parses_elabftw_format(self):
         assert autofill.item_tags({"tags": "a|b"}) == {"a", "b"}
