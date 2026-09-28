@@ -1,0 +1,52 @@
+name: Docker image
+
+# Proves on every pull request and push to main that the image builds, the
+# offline tests pass inside it, and it serves requests. Nothing is published:
+# the lab server builds its own image from its checkout (deploy/compose.yaml).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:        # adds a "Run workflow" button in the Actions tab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: docker build -t eln-server-ci .
+
+      - name: Dummy config for the tests and smoke test (no real ELN or Slack)
+        run: |
+          cp config-ex.yaml config.yaml
+          sed -i 's|^eln_url:.*|eln_url: https://eln.invalid/api/v2|; s|^eln_web_url:.*|eln_web_url: https://eln.invalid|; s|^slack_enabled:.*|slack_enabled: false|' config.yaml
+          cp secrets.example.yaml secrets.yaml
+
+      - name: Offline tests inside the image
+        run: |
+          docker run --rm --user root -e PYTHONDONTWRITEBYTECODE=1 -v "$PWD":/src -w /src eln-server-ci \
+            sh -c 'pip install -q pytest && python -m pytest -m "not live" -p no:cacheprovider'
+
+      - name: Smoke test the image
+        run: |
+          docker run -d --name eln -p 5000:5000 \
+            -v "$PWD/config.yaml":/app/config.yaml -v "$PWD/secrets.yaml":/app/secrets.yaml:ro \
+            eln-server-ci
+          for i in $(seq 30); do curl -fsS http://127.0.0.1:5000/ping && break || sleep 1; done
+          curl -fsS -o /dev/null http://127.0.0.1:5000/
+          # label PDFs need Pango and fonts in the image: check one renders its text in DejaVu
+          curl -fsS -X POST -H 'Content-Type: application/json' -o label.pdf \
+            -d '{"Title":"CI","Text":"smoke test","Icon":"None","QRContentType":"Resource","QRContent":1,"Height":18}' \
+            http://127.0.0.1:5000/create_label
+          docker run --rm -v "$PWD/label.pdf":/tmp/label.pdf:ro eln-server-ci python -c "
+          from pypdf import PdfReader
+          page = PdfReader('/tmp/label.pdf').pages[0]
+          fonts = [str(f.get_object()['/BaseFont']) for f in page['/Resources']['/Font'].values()]
+          print(fonts)
+          assert 'smoke test' in page.extract_text()
+          assert any('DejaVu' in f for f in fonts)
+          "
+          docker logs eln
+          docker rm -f eln

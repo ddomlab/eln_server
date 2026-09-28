@@ -88,6 +88,32 @@ ignored unless it is set).
 
 ## Running the server
 
+### With Docker (the lab server)
+
+`deploy/compose.yaml` builds the image from this checkout and runs it with
+`config.yaml` and `secrets.yaml` mounted from the repo root (they are never
+baked into the image). The container joins the shared `lab-net` network, where
+the edge proxy reaches it at `http://eln-server:5000`; the lab's address stays
+`https://eln.ddomlab.org:5000` (Caddy sends `/pth/...` to the PTH container and
+everything else here). It also listens on `127.0.0.1:5001` for the timer client
+on the same host.
+
+```bash
+git clone https://github.com/ddomlab/eln_server.git /opt/eln-server
+cd /opt/eln-server
+cp config-ex.yaml config.yaml                                    # set eln_url, eln_web_url, IDs
+cp secrets.example.yaml secrets.yaml && chmod 600 secrets.yaml   # fill in the Slack token etc.
+cd deploy && sudo docker compose up -d --build
+sudo docker compose ps                                           # expect "healthy"
+```
+
+The container runs as uid 1000, so both files must be readable by that user
+(and `config.yaml` writable, since `/settings_interface` saves to it).
+Update: `git pull && sudo docker compose up -d --build`.
+`constraints.txt` pins the Python package versions the image installs.
+
+### Without Docker
+
 Dependencies are managed with [uv](https://docs.astral.sh/uv/) in a local
 `.venv` (gitignored):
 
@@ -119,3 +145,9 @@ This installs `eln-autofill.timer` (every 10 minutes — adjust `OnCalendar` to
 taste, including excluding backup windows) and `eln-peroxide-check.timer`
 (May 1 and Nov 1). The key is stored at `/etc/eln-client/api_key`; the server
 URL is set via `ELN_SERVER_URL` in the `.service` files.
+Pass it at install time to skip editing them; with the Docker deploy on the same
+host that's the local port:
+
+```bash
+cd client && sudo ELN_SERVER_URL=http://127.0.0.1:5001 ./install.sh
+```

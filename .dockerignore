@@ -1,0 +1,21 @@
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# secrets and per-server settings are mounted at run time, never baked into the image
+secrets.yaml
+config.yaml
+api_key
+slack_bot_token
+
+# generated output
+static/print.pdf
+
+# not needed at run time
+tests/
+client/
+deploy/

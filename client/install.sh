@@ -17,6 +17,14 @@ install -m 755 "$SCRIPT_DIR/eln_timer_client.py" /opt/eln-client/
 install -m 644 "$SCRIPT_DIR"/eln-autofill.{service,timer} /etc/systemd/system/
 install -m 644 "$SCRIPT_DIR"/eln-peroxide-check.{service,timer} /etc/systemd/system/
 
+# optional: point the timers at a server other than the default in the .service files,
+# e.g. sudo ELN_SERVER_URL=http://127.0.0.1:5001 ./install.sh (the Docker deploy's local port)
+if [[ -n ${ELN_SERVER_URL:-} ]]; then
+    sed -i "s|^Environment=ELN_SERVER_URL=.*|Environment=ELN_SERVER_URL=$ELN_SERVER_URL|" \
+        /etc/systemd/system/eln-autofill.service /etc/systemd/system/eln-peroxide-check.service
+    echo "Timers will call $ELN_SERVER_URL"
+fi
+
 if [[ ! -f $KEY_FILE ]]; then
     SECRETS_FILE="$SCRIPT_DIR/../secrets.yaml"
     if [[ ! -f $SECRETS_FILE ]]; then
