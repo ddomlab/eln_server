@@ -38,6 +38,11 @@ def check_and_fill_image(rm: Resource_Manager, smiles: str, id: int, force=False
         rm.upload_file(id, imagepath)
 
 
+def item_tags(item: dict) -> set[str]:
+    """The item's tags as a set; eLabFTW sends them as one "a|b|c" string, or None."""
+    return set((item.get("tags") or "").split("|")) - {""}
+
+
 def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label=True, image=True):
     """Runs the autofill steps (label upload, info fill, RDKit image) on a single item dict."""
     if item['category'] is None:  # skip items that don't have a category
@@ -58,12 +63,15 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
         except json.JSONDecodeError:
             raise ValueError(f"Invalid JSON in metadata for item {id}")
 
-        # check if the item has been autofilled already, skip autofill is on, or if force is true
-        if (item["tags"] is None or "Autofilled" not in item["tags"] or "Skip Autofill" not in item["tags"] or force) and not rm.is_item_busy(id):
+        # skip items that were already autofilled or are tagged "Skip Autofill", unless force is true
+        tags = item_tags(item)
+        if (force or not tags & {"Autofilled", "Skip Autofill"}) and not rm.is_item_busy(id):
             if info:
                 try:
                     fill_info.fill_in(rm, id)
                     rm.add_tag(id, "Autofilled")
+                    # the fill may have just set the SMILES, so the image step needs the updated fields
+                    metadata = json.loads(rm.get_item(id)["metadata"] or "{}")
                 except pcp.PubChemHTTPError as e:
                     if e.code < 500:
                         raise
@@ -73,7 +81,7 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
                 except ValueError as e:
                     if "Null molecule" in str(e):
                         slackbot.send_message(f"Invalid SMILES provided in SMILES field for item {id}. See {config.item_web_url(id)}")
-                    if item["tags"] is None or "Not In PubChem" not in item["tags"]:
+                    if "Not In PubChem" not in tags:
                         rm.add_tag(id, "Not In PubChem")
                         print(str(e))
                         if "No compound" in str(e):
@@ -89,7 +97,7 @@ def process_item(rm: Resource_Manager, item: dict, force=False, info=True, label
                 except KeyError:
                     print(f"No SMILES found for item {id}")
                 except ValueError:
-                    if item["tags"] is None or "Invalid SMILES" not in item["tags"]:
+                    if "Invalid SMILES" not in tags:
                         rm.add_tag(id, "Invalid SMILES")
                         slackbot.send_message(f"Invalid SMILES found for item {id}, cannot generate image.")
         else:
