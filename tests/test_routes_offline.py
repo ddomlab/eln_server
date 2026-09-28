@@ -15,6 +15,7 @@ import web.interface as interface
 import web.search_process as search_process
 from automations.labels.generate_label import LabelGenerator
 from eln_common.fill_info import check_if_cas
+from eln_common.resourcemanage import Resource_Manager
 from web.auth import get_key
 
 
@@ -368,6 +369,24 @@ class TestAddResourceAutofill:
         # the autofill runs on a background thread right after creation
         assert autofilled.wait(timeout=2), "autofill was not triggered by /add_resource"
         assert autofill_calls == [999]
+
+
+class TestCreateItemFromTemplate:
+    """New resources start from their template, so they get its category and
+    default status (items created from a bare category had no status)."""
+
+    def test_posts_template_and_patches_the_rest(self):
+        posted, patched = [], []
+        rm = Resource_Manager.__new__(Resource_Manager)  # skip the API-key setup
+        rm.itemsapi = SimpleNamespace(post_item_with_http_info=lambda body: (
+            posted.append(body) or (None, 201, {"Location": "https://eln/api/v2/items/615"})))
+        rm.change_item = lambda id, body: patched.append((id, body))
+
+        body = {"title": "Sudan I", "body": "", "category": 2, "metadata": "{}"}
+        assert rm.create_item(2, body) == 615
+        assert posted == [{"template": 2}]
+        # category comes from the template, so it isn't patched over
+        assert patched == [(615, {"title": "Sudan I", "body": "", "metadata": "{}"})]
 
 
 class TestAutofillResilience:
