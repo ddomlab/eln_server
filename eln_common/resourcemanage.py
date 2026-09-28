@@ -44,23 +44,26 @@ class Resource_Manager:
         """
         url = config.URL + url
         return requests.patch(url, headers=self.header, json=json)
-    def create_item(self, category: int, body_dict: dict[str, Any]) -> int:
+    def create_item(self, template: int, body_dict: dict[str, Any]) -> int:
         """
-        Creates an item in the ELN with the given category and body_dict.
-            :param int category: The resource category ID of the item to be created.
-                Category IDs are team-specific; list them with get_items_types().
+        Creates an item in the ELN from the given resource template, then applies body_dict.
+        Starting from the template gives the item the template's category and default
+        status, and still works when the team enforces template use.
+            :param int template: The ID of the resource template (items_types) to create from.
+                Template IDs are team-specific; list them with get_items_types().
             :param dict body_dict: The body of the item to be created.
             :return: The ID of the newly created item.
         """
         response = self.itemsapi.post_item_with_http_info( # type: ignore
             body={
-                "category_id": category,
+                "template": template,
             }
         )
         locationHeaderInResponse: str = str(response[2].get("Location")) #type: ignore
         print(f"The newly created item is here: {locationHeaderInResponse}")
         item_id:int = int(locationHeaderInResponse.split("/").pop())
-        self.change_item(item_id, body_dict)
+        # the template already set the right category; callers pass the template ID there
+        self.change_item(item_id, {k: v for k, v in body_dict.items() if k != "category"})
         return item_id
 
     def change_item(self, id: int, body_dict: dict[str, Any]) -> None:
