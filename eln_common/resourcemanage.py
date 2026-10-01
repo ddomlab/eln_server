@@ -130,10 +130,22 @@ class Resource_Manager:
     
     def get_compounds(self):
         """
-        Gets a list of compounds in the ELN as dictionaries.
+        Gets every (non-deleted) compound in the ELN as dictionaries.
             :return: A list of dictionaries containing the compounds.
         """
-        return self.get_url("/compounds?limit=1000").json()
+        response = self.get_url("/compounds?limit=9999")
+        response.raise_for_status()
+        return response.json()
+
+    def get_storage_units(self) -> list[dict[str, Any]]:
+        """
+        Gets every storage place (room, cabinet, ...) in the ELN.
+            :return: A list of dictionaries with {id, name, parent_id, full_path, ...};
+                parent_id is None for top-level places (rooms).
+        """
+        response = self.get_url("/storage_units?hierarchy=true")
+        response.raise_for_status()
+        return response.json()
     def add_tag(self, item_id: int, tag: str):
         """
         Adds a tag to an item in the ELN with the given item ID and tag. Take care to use correct capitalization/whitespace

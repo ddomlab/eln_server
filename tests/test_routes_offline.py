@@ -371,6 +371,43 @@ class TestAddResourceAutofill:
         assert autofill_calls == [999]
 
 
+class TestLookupLists:
+    """The add-resource page loads existing compounds and storage places into dropdowns."""
+
+    def test_compounds_list_is_trimmed_and_sorted(self, client, monkeypatch):
+        fake_rm = SimpleNamespace(get_compounds=lambda: [
+            {"id": 72, "name": "acetone", "cas_number": "67-64-1", "molecular_formula": "C3H6O", "smiles": "CC(C)=O"},
+            {"id": 111, "name": "Chlorobenzene", "cas_number": "108-90-7", "molecular_formula": None},
+            {"id": 196, "name": None, "cas_number": None, "molecular_formula": None},
+        ])
+        monkeypatch.setattr(interface, "rm", lambda: fake_rm)
+        resp = client.get("/compounds_list")
+        assert resp.status_code == 200
+        assert resp.get_json() == [
+            {"id": 196, "name": "", "cas": "", "formula": ""},
+            {"id": 72, "name": "acetone", "cas": "67-64-1", "formula": "C3H6O"},
+            {"id": 111, "name": "Chlorobenzene", "cas": "108-90-7", "formula": ""},
+        ]
+
+    def test_storage_tree_keeps_hierarchy(self, client, monkeypatch):
+        fake_rm = SimpleNamespace(get_storage_units=lambda: [
+            {"id": 4, "name": "Room 3057", "parent_id": None, "full_path": "Room 3057", "level_depth": 0},
+            {"id": 5, "name": "Front hood", "parent_id": 4, "full_path": "Room 3057 > Front hood", "level_depth": 1},
+        ])
+        monkeypatch.setattr(interface, "rm", lambda: fake_rm)
+        resp = client.get("/storage_tree")
+        assert resp.status_code == 200
+        assert resp.get_json() == [
+            {"id": 4, "name": "Room 3057", "parent_id": None, "full_path": "Room 3057"},
+            {"id": 5, "name": "Front hood", "parent_id": 4, "full_path": "Room 3057 > Front hood"},
+        ]
+
+    @pytest.mark.parametrize("path", ["/compounds_list", "/storage_tree"])
+    def test_lists_need_an_api_key(self, client, path):
+        resp = client.get(path)
+        assert resp.status_code == 401
+
+
 class TestCreateItemFromTemplate:
     """New resources start from their template, so they get its category and
     default status (items created from a bare category had no status)."""

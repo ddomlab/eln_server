@@ -79,6 +79,51 @@ def get_statuses():
         return jsonify({"status": "error", "error": str(e)}), 400
 
 
+@interface_bp.route('/compounds_list', methods=['GET'])
+@cross_origin(origins="http://localhost:8000")
+def compounds_list():
+    """Existing compounds as [{id, name, cas, formula}], sorted by name, for the
+    add-resource compound dropdown."""
+    try:
+        compounds = rm().get_compounds()
+        listing = [
+            {
+                "id": c["id"],
+                "name": c.get("name") or "",
+                "cas": c.get("cas_number") or "",
+                "formula": c.get("molecular_formula") or "",
+            }
+            for c in compounds
+        ]
+        return jsonify(sorted(listing, key=lambda c: c["name"].lower()))
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 400
+
+
+@interface_bp.route('/storage_tree', methods=['GET'])
+@cross_origin(origins="http://localhost:8000")
+def storage_tree():
+    """Storage places as [{id, name, parent_id, full_path}], for the
+    Room -> Place dropdowns (rooms have parent_id null)."""
+    try:
+        units = rm().get_storage_units()
+        return jsonify([
+            {
+                "id": u["id"],
+                "name": u["name"],
+                "parent_id": u.get("parent_id"),
+                "full_path": u.get("full_path") or u["name"],
+            }
+            for u in units
+        ])
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 400
+
+
 # the team-ID settings that the web settings page may change, with their coercers
 SETTINGS_SCHEMA = {
     "status_open": int,
