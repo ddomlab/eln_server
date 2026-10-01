@@ -4,13 +4,10 @@ None of these need an eLN API key or network access.
 """
 
 import json
-import threading
 from types import SimpleNamespace
 
-import pubchempy as pcp
 import pytest
 
-import automations.autofill as autofill
 import eln_common.compound_import as compound_import
 import web.interface as interface
 import web.search_process as search_process
@@ -72,10 +69,9 @@ class TestAuthKeyExtraction:
 
 
 class TestAutomationApiAuth:
-    def test_autofill_requires_key(self, client):
-        resp = client.post("/api/autofill", json={})
-        assert resp.status_code == 401
-        assert resp.get_json()["status"] == "error"
+    def test_autofill_route_is_gone(self, client):
+        # removed 2026-10; the old timer must not find a working endpoint
+        assert client.post("/api/autofill", json={}).status_code == 404
 
     def test_check_peroxides_requires_key(self, client):
         resp = client.post("/api/check_peroxides")
@@ -179,7 +175,6 @@ class TestConfig:
         import eln_common.config as config
 
         assert config.URL.startswith("http")
-        assert isinstance(config.AUTO_UPLOAD_LABELS, bool)
         # configured paths are absolute after repo-root resolution
         assert config.PRINTER_PATH.startswith("/")
 
@@ -340,20 +335,10 @@ class TestLabelGenerator:
         assert gen.records[0]["received_date"] == ""
 
 
-class TestAddResourceAutofill:
-    def test_add_resource_triggers_background_autofill(self, client, monkeypatch):
+class TestAddResource:
+    def test_add_resource_creates_item_from_template(self, client, monkeypatch):
         fake_rm = FakeRM(create_id=999)
         monkeypatch.setattr(interface, "rm", lambda: fake_rm)
-
-        autofilled = threading.Event()
-        autofill_calls = []
-
-        def fake_autofill_item(rmn, item_id, **kwargs):
-            autofill_calls.append(item_id)
-            autofilled.set()
-
-        monkeypatch.setattr(interface.autofill, "autofill_item", fake_autofill_item)
-
         resp = client.post("/add_resource", json={
             "title": "new thing",
             "body": "",
@@ -367,9 +352,6 @@ class TestAddResourceAutofill:
             "id": 999,
         }
         assert fake_rm.created[0][0] == 2
-        # the autofill runs on a background thread right after creation
-        assert autofilled.wait(timeout=2), "autofill was not triggered by /add_resource"
-        assert autofill_calls == [999]
 
 
 class TestLookupLists:
@@ -537,124 +519,6 @@ class TestCreateItemFromTemplate:
         assert posted == [{"template": 2}]
         # category comes from the template, so it isn't patched over
         assert patched == [(615, {"title": "Sudan I", "body": "", "metadata": "{}"})]
-
-
-class TestAutofillResilience:
-    """PubChem outages are soft skips, and one bad item can't spoil a batch."""
-
-    @staticmethod
-    def _item(id):
-        return {
-            "id": id,
-            "category": 2,
-            "tags": None,
-            "metadata": json.dumps({"extra_fields": {}}),
-        }
-
-    def _rm(self, tags):
-        return SimpleNamespace(
-            is_item_busy=lambda id: False,
-            get_item=self._item,
-            add_tag=lambda id, tag: tags.append(tag),
-            get_items=lambda size, with_metadata: [self._item(i) for i in (1, 2, 3)],
-        )
-
-    @pytest.fixture(autouse=True)
-    def default_settings(self, monkeypatch):
-        # pin chemical_categories etc. to their defaults regardless of config.yaml
-        monkeypatch.setattr(autofill.config, "setting", lambda key, default=None: default)
-
-    def test_pubchem_5xx_soft_skips_info_fill(self, monkeypatch):
-        def outage(rm, id):
-            raise pcp.PubChemHTTPError(502, "Bad Gateway", [])
-        monkeypatch.setattr(autofill.fill_info, "fill_in", outage)
-        tags = []
-        # must not raise...
-        autofill.process_item(self._rm(tags), self._item(1), label=False, image=False)
-        # ...and must leave the item untagged so the next run retries it
-        assert "Autofilled" not in tags
-
-    def test_pubchem_4xx_still_raises(self, monkeypatch):
-        def bad_request(rm, id):
-            raise pcp.BadRequestError(400, "Bad Request", [])
-        monkeypatch.setattr(autofill.fill_info, "fill_in", bad_request)
-        with pytest.raises(pcp.PubChemHTTPError):
-            autofill.process_item(self._rm([]), self._item(1), label=False, image=False)
-
-    def test_batch_continues_past_failing_item(self, monkeypatch):
-        processed = []
-
-        def fake_process(rm, item, **kwargs):
-            processed.append(item["id"])
-            if item["id"] == 2:
-                raise RuntimeError("boom")
-        monkeypatch.setattr(autofill, "process_item", fake_process)
-        with pytest.raises(ExceptionGroup) as excinfo:
-            autofill.autofill(self._rm([]))
-        assert processed == [1, 2, 3]
-        assert len(excinfo.value.exceptions) == 1
-        assert "item 2" in "".join(excinfo.value.exceptions[0].__notes__)
-
-
-class TestAutofillSkipRules:
-    """Each item is autofilled once: the scheduled run must not keep re-filling
-    items it already tagged, which rewrote them every 10 minutes."""
-
-    @staticmethod
-    def _item(tags):
-        return {"id": 1, "category": 2, "tags": tags,
-                "metadata": json.dumps({"extra_fields": {}})}
-
-    @pytest.fixture(autouse=True)
-    def default_settings(self, monkeypatch):
-        monkeypatch.setattr(autofill.config, "setting", lambda key, default=None: default)
-
-    @pytest.fixture()
-    def filled(self, monkeypatch):
-        calls = []
-        monkeypatch.setattr(autofill.fill_info, "fill_in", lambda rm, id: calls.append(id))
-        return calls
-
-    def _run(self, tags, force=False, image=False):
-        added = []
-        # after the fill, the item has the SMILES that PubChem supplied
-        filled_item = {"metadata": json.dumps({"extra_fields": {"SMILES": {"value": "CCO"}}})}
-        rm = SimpleNamespace(is_item_busy=lambda id: False,
-                             add_tag=lambda id, tag: added.append(tag),
-                             get_item=lambda id: filled_item)
-        autofill.process_item(rm, self._item(tags), force=force, label=False, image=image)
-        return added
-
-    def test_untagged_item_is_filled_and_tagged(self, filled):
-        assert self._run(None) == ["Autofilled"]
-        assert filled == [1]
-
-    @pytest.mark.parametrize("tags", ["Autofilled", "Skip Autofill", "UV-Vis|Autofilled"])
-    def test_tagged_item_is_left_alone(self, filled, tags):
-        assert self._run(tags) == []
-        assert filled == []
-
-    def test_other_tags_do_not_block_fill(self, filled):
-        self._run("UV-Vis|PRF")
-        assert filled == [1]
-
-    def test_force_refills_autofilled_item(self, filled):
-        self._run("Autofilled", force=True)
-        assert filled == [1]
-
-    def test_image_uses_smiles_from_the_same_fill(self, filled, monkeypatch):
-        # the item starts without a SMILES; since it is autofilled only once,
-        # the image has to come from the SMILES that this pass filled in
-        images = []
-        monkeypatch.setattr(autofill, "check_and_fill_image",
-                            lambda rm, smiles, id, force=False: images.append(smiles))
-        self._run(None, image=True)
-        assert images == ["CCO"]
-
-    def test_item_tags_parses_elabftw_format(self):
-        assert autofill.item_tags({"tags": "a|b"}) == {"a", "b"}
-        assert autofill.item_tags({"tags": None}) == set()
-        assert autofill.item_tags({}) == set()
 
 
 class TestCreateLabel:

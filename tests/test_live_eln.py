@@ -166,26 +166,6 @@ class TestPrint:
         assert resp.data.startswith(b"%PDF")
 
 
-class TestAutomationApi:
-    def test_autofill_single_item(self, client, auth_headers, slack_messages):
-        """Default autofill on 393: idempotent when the item is already filled
-        (existing label is kept, 'Autofilled' tag short-circuits info/image)."""
-        resp = client.post("/api/autofill", json={"id": TEST_ITEM_ID}, headers=auth_headers)
-        assert resp.status_code == 200, resp.get_json()
-        assert resp.get_json() == {"status": "ok"}
-        assert slack_messages == []  # no error reports
-
-    def test_autofill_bad_key_reports_error(self, client, slack_messages):
-        resp = client.post(
-            "/api/autofill",
-            json={"id": TEST_ITEM_ID},
-            headers={"Authorization": "not-a-real-key"},
-        )
-        assert resp.status_code == 500
-        assert resp.get_json()["status"] == "error"
-        assert len(slack_messages) == 1  # failure went to the (stubbed) error channel
-
-
 class TestSearch:
     TEMPLATE = {
         "title": "",

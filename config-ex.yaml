@@ -14,12 +14,6 @@ eln_web_url: https://eln.ddomlab.org
 # Where generated label PDFs are written before printing/upload
 printer_path: /tmp/label.pdf
 
-# Legacy feature: /print used to fetch a label.pdf stored on each resource, so
-# autofill uploaded one to every new item. /print now generates labels on the
-# fly, making the uploads redundant; set this to true to keep attaching
-# label.pdf to resources anyway.
-auto_upload_labels: false
-
 ## Team-specific IDs ##########################################################
 # eLabFTW statuses and resource categories are per-team lists with arbitrary
 # IDs, so they must be mapped here for your instance. Two ways to find them:
@@ -33,13 +27,13 @@ auto_upload_labels: false
 status_open: 4
 # Status a resource gets when marked as empty
 status_empty: 5
-# Resource categories that get PubChem info + an RDKit structure image on autofill
+# Resource categories that hold chemicals
 chemical_categories: [2, 3]
 # Resource categories whose printed labels show a "Received" date
 label_date_categories: [2, 3, 4]
 
 ## Slack integration ##########################################################
-# Set to true to have the automations report to Slack (autofill errors,
+# Set to true to have the automations report to Slack (errors,
 # peroxide reminders). Requires slack_bot_token in secrets.yaml. When false
 # (the default), messages are written to the server log instead.
 slack_enabled: false

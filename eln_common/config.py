@@ -95,11 +95,6 @@ def update_settings(values: dict) -> None:
         else:
             lines.append(new_line)
     CONFIG_PATH.write_text("\n".join(lines) + "\n")
-# Legacy feature: /print used to fetch a label.pdf stored on each resource, so
-# autofill uploaded one to every new item. /print now generates labels on the
-# fly, making the uploads redundant; set auto_upload_labels: true in
-# config.yaml to keep attaching label.pdf to resources anyway.
-AUTO_UPLOAD_LABELS = bool(_cfg.get("auto_upload_labels", False))
 ##################################################
 
 # allows the connection

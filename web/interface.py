@@ -1,15 +1,12 @@
 import json
-import threading
 from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, request, send_from_directory
 from flask_cors import cross_origin
 
-import automations.autofill as autofill
 import eln_common.compound_import as compound_import
 import eln_common.config as config
 from eln_common.fill_info import check_if_cas
-from eln_common.resourcemanage import Resource_Manager
 import web.label_creating as label_creating
 import web.print_handling as print_handling
 import web.search_process as search_process
@@ -469,16 +466,6 @@ def add_option():
         return jsonify({"status": "error", "error": str(e)}), 400
 
 
-def _autofill_in_background(rmn: Resource_Manager, item_id: int):
-    """Runs the autofill steps on a newly created item without blocking the response."""
-    def target():
-        try:
-            autofill.autofill_item(rmn, item_id)
-        except Exception as e:
-            print(f"Error autofilling new item {item_id}:", e)
-    threading.Thread(target=target, daemon=True).start()
-
-
 @interface_bp.route('/add_resource', methods=['POST'])
 @cross_origin(origins="http://localhost:8000")
 def add_resource():
@@ -491,8 +478,6 @@ def add_resource():
         try:
             rmn = rm()
             item_id = rmn.create_item(data['category'], resource)
-            # kick off autofill (label, info, image) for the new resource immediately
-            _autofill_in_background(rmn, item_id)
             return jsonify({"status": "ok", "received": data, "id": item_id})
         except Exception as e:
             print("Error Initializing Resource Manager:", e)

@@ -37,5 +37,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/ping', timeout=4).status==200 else 1)"
 
 # 1 worker, as on the old server (~160 MB each). --timeout matches the timer client's
-# 600 s wait, so a long autofill or peroxide check isn't killed halfway.
+# 600 s wait, so a long peroxide check isn't killed halfway.
 CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:5000", "--timeout", "600", "--access-logfile", "-", "app:app"]
