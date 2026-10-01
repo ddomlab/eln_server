@@ -11,6 +11,7 @@ import pubchempy as pcp
 import pytest
 
 import automations.autofill as autofill
+import eln_common.compound_import as compound_import
 import web.interface as interface
 import web.search_process as search_process
 from automations.labels.generate_label import LabelGenerator
@@ -406,6 +407,118 @@ class TestLookupLists:
     def test_lists_need_an_api_key(self, client, path):
         resp = client.get(path)
         assert resp.status_code == 401
+
+
+class FakeCompoundRM:
+    """Stand-in for the compound calls of Resource_Manager."""
+
+    def __init__(self, compounds, pubchem=None, create_returns=200):
+        self.compounds = compounds
+        self.pubchem = pubchem or []
+        self.create_returns = create_returns
+        self.created, self.patched = [], []
+
+    def get_all_compounds(self):
+        return self.compounds
+
+    def pubchem_lookup(self, cas=None, name=None, cid=None):
+        return self.pubchem
+
+    def create_compound(self, body):
+        self.created.append(body)
+        return self.create_returns
+
+    def patch_compound(self, id, body):
+        self.patched.append((id, body))
+
+    def get_compound(self, id):
+        body = self.created[-1]
+        return {"id": id, "name": body.get("name"), "cas_number": body.get("cas_number"),
+                "molecular_formula": body.get("molecular_formula"), "state": 1}
+
+
+MANNITOL = {"cid": 6251, "cas": "87-78-5", "name": "Mannitol", "inChIKey": "FBPFZTCFMRRESA-KVTDHHQDSA-N",
+            "molecularFormula": "C6H14O6", "molecularWeight": 182.17, "smiles": "C(...)O", "isFlammable": False}
+HEXITOL_80 = {"id": 80, "name": "Hexitol", "cas_number": "87-78-5", "pubchem_cid": 453,
+              "inchi_key": "FBPFZTCFMRRESA-UHFFFAOYSA-N", "state": 1}
+
+
+class TestCompoundImport:
+    """Rules from the 2026-09 cleanup: eLabFTW overwrites a compound that shares a
+    unique field, even a deleted one, so clashes are refused before creating."""
+
+    def test_users_cas_is_kept_and_pubchems_cas_does_not_clash(self):
+        # Mannitol: the bottle says 69-65-8, PubChem lists 87-78-5 which Hexitol (#80) holds
+        rm = FakeCompoundRM([HEXITOL_80], create_returns=126)
+        created = compound_import.create_compound_safely(rm, MANNITOL, "69-65-8")
+        assert created["id"] == 126 and created["cas_number"] == "69-65-8"
+        assert rm.created[0]["pubchem_cid"] == 6251
+        assert rm.patched == [(126, {"molecular_weight": 182.17})]
+        # empty/None fields are left out (False flags are kept)
+        assert "iupac_name" not in rm.created[0] and rm.created[0]["is_flammable"] is False
+
+    def test_same_pubchem_id_is_refused(self):
+        existing = {**HEXITOL_80, "pubchem_cid": 6251}
+        rm = FakeCompoundRM([existing])
+        with pytest.raises(compound_import.CompoundClash) as e:
+            compound_import.create_compound_safely(rm, MANNITOL, "69-65-8")
+        assert e.value.existing["id"] == 80 and "PubChem ID" in e.value.reason
+        assert rm.created == []
+
+    def test_deleted_compound_with_same_cas_is_refused(self):
+        # like #8 Phenylboronic acid: deleted, but it still holds its CAS
+        deleted = {"id": 8, "name": "Phenylboronic acid", "cas_number": "98-80-6", "state": 3}
+        pc = {"cid": 66827, "cas": "98-80-6", "name": "Phenylboronic Acid", "inChIKey": "HXIT-X"}
+        rm = FakeCompoundRM([deleted])
+        with pytest.raises(compound_import.CompoundClash) as e:
+            compound_import.create_compound_safely(rm, pc, "98-80-6")
+        assert e.value.existing["id"] == 8 and compound_import.summary(e.value.existing)["deleted"]
+
+    def test_existing_id_returned_by_elabftw_stops(self):
+        # if eLabFTW still overwrote something, never treat that compound as new
+        rm = FakeCompoundRM([HEXITOL_80], create_returns=80)
+        with pytest.raises(RuntimeError, match="#80"):
+            compound_import.create_compound_safely(rm, MANNITOL, "69-65-8")
+        assert rm.patched == []
+
+
+class TestCompoundRoutes:
+    def test_preview_marks_existing_compound(self, client, monkeypatch):
+        acetone = {"cid": 180, "cas": "67-64-1", "name": "Acetone", "molecularFormula": "C3H6O"}
+        rm = FakeCompoundRM([{"id": 72, "name": "Acetone", "cas_number": "67-64-1", "pubchem_cid": 180,
+                              "molecular_formula": "C3H6O", "state": 1}], pubchem=[acetone])
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        resp = client.get("/compounds/pubchem?cas=67-64-1")
+        assert resp.status_code == 200
+        candidate = resp.get_json()["candidates"][0]
+        assert candidate["pubchem"]["name"] == "Acetone"
+        assert candidate["existing"]["id"] == 72 and candidate["reason"] == "same PubChem ID"
+
+    def test_preview_not_in_pubchem_is_404(self, client, monkeypatch):
+        monkeypatch.setattr(interface, "rm", lambda: FakeCompoundRM([], pubchem=[]))
+        assert client.get("/compounds/pubchem?cas=1599466-85-9").status_code == 404
+
+    def test_preview_needs_cas_or_name(self, client):
+        assert client.get("/compounds/pubchem").status_code == 400
+
+    def test_create_returns_201_with_new_compound(self, client, monkeypatch):
+        rm = FakeCompoundRM([HEXITOL_80], pubchem=[MANNITOL], create_returns=126)
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        resp = client.post("/compounds", json={"cid": 6251, "cas": "69-65-8"})
+        assert resp.status_code == 201
+        assert resp.get_json() == {"id": 126, "name": "Mannitol", "cas": "69-65-8",
+                                   "formula": "C6H14O6", "deleted": False}
+
+    def test_create_clash_is_409_with_existing(self, client, monkeypatch):
+        rm = FakeCompoundRM([{**HEXITOL_80, "pubchem_cid": 6251}], pubchem=[MANNITOL])
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        resp = client.post("/compounds", json={"cid": 6251, "cas": "69-65-8"})
+        assert resp.status_code == 409
+        assert resp.get_json()["existing"]["id"] == 80
+
+    @pytest.mark.parametrize("body", [{}, {"cid": "abc"}, {"cid": 6251, "cas": "not-a-cas"}])
+    def test_create_rejects_bad_input(self, client, body):
+        assert client.post("/compounds", json=body).status_code == 400
 
 
 class TestCreateItemFromTemplate:

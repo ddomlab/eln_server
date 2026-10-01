@@ -137,6 +137,61 @@ class Resource_Manager:
         response.raise_for_status()
         return response.json()
 
+    def get_all_compounds(self) -> list[dict[str, Any]]:
+        """
+        Gets every compound including archived and deleted ones (state 1, 2, 3).
+        Deleted compounds still hold their CAS, PubChem ID and InChIKey, so they
+        matter when checking whether a new compound would clash.
+        """
+        response = self.get_url("/compounds?limit=9999&state=1,2,3")
+        response.raise_for_status()
+        return response.json()
+
+    def pubchem_lookup(self, cas: str | None = None, name: str | None = None,
+                       cid: int | None = None) -> list[dict[str, Any]]:
+        """
+        Looks a compound up in PubChem through eLabFTW, without saving anything.
+            :return: Matching PubChem compounds as dictionaries with {cid, cas, name,
+                inChI, inChIKey, smiles, iupacName, molecularFormula, molecularWeight,
+                isFlammable, ...}; an empty list when PubChem has no match.
+        """
+        if cid is not None:
+            query = {"search_pubchem_cid": cid}
+        elif cas:
+            query = {"search_pubchem_cas": cas}
+        elif name:
+            query = {"search_pubchem_name": name}
+        else:
+            raise ValueError("Give a CAS number, a name or a PubChem CID")
+        response = requests.get(config.URL + "/compounds", headers=self.header, params=query)
+        # eLabFTW answers 500 with PubChem's "PUGREST.NotFound" when there is no match
+        if response.status_code == 500 and "NotFound" in response.text:
+            return []
+        response.raise_for_status()
+        found = response.json()
+        return found if isinstance(found, list) else [found]
+
+    def create_compound(self, body: dict[str, Any]) -> int:
+        """
+        Creates a compound from the given fields. Prefer compound_import.create_compound_safely():
+        if any unique field (CAS, InChIKey, PubChem ID...) matches an existing or deleted
+        compound, eLabFTW overwrites that compound and returns its id instead.
+            :return: The id eLabFTW reports for the saved compound.
+        """
+        response = self.post_url("/compounds", json=body)
+        response.raise_for_status()
+        return int(str(response.headers["Location"]).rstrip("/").split("/").pop())
+
+    def patch_compound(self, id: int, body: dict[str, Any]) -> None:
+        """Changes fields of the compound with the given ID."""
+        self.patch_url("/compounds/" + str(id), json=body).raise_for_status()
+
+    def get_compound(self, id: int) -> dict[str, Any]:
+        """Gets one compound as a dictionary."""
+        response = self.get_url("/compounds/" + str(id))
+        response.raise_for_status()
+        return response.json()
+
     def get_storage_units(self) -> list[dict[str, Any]]:
         """
         Gets every storage place (room, cabinet, ...) in the ELN.
