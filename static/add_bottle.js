@@ -3,6 +3,7 @@
 //   GET /compounds_list  -> existing compounds (with their hazards) for the dropdown
 //   GET /storage_tree    -> rooms and the places inside them
 //   POST /storage_units  -> add a new place (the server refuses near-duplicate names)
+//   POST /resources      -> create the bottle(s)
 // The user's API key travels by itself in the apiKey cookie.
 
 // what the page knows, filled once when it opens
@@ -411,11 +412,133 @@ function updatePreview() {
   document.getElementById("preview").textContent = JSON.stringify(buildRequest(), null, 2);
 }
 
+// ---------- Create ----------
+
+// what's missing before we can send, as [{element, text}]; nothing is sent until it's empty
+function missingAnswers(request) {
+  const missing = [];
+  const need = (ok, element, text) => { if (!ok) missing.push({ element, text }); };
+  const slots = currentCategory()?.compound_slots || [];
+  slots.forEach((slotName, i) => need(picked[i], document.getElementById(`compound-${i}`),
+    `${slotName}: pick it from the list`));
+  need(request.storage.place_id, document.getElementById("room").value ? document.getElementById("place")
+    : document.getElementById("room"), "Where it is kept: choose a room and a place");
+  need(request.storage.amount !== null && request.storage.amount >= 0, document.getElementById("amount"),
+    "Amount: a number, 0 or more");
+  need(request.storage.unit, document.getElementById("unit"), "Unit");
+  need(request.count >= 1 && request.count <= 20, document.getElementById("count"), "Number of bottles: 1 to 20");
+  need(request.title, document.getElementById("title"), "Name");
+  // the template marks some fields as required (Lot number, Received...)
+  for (const f of currentCategory()?.fields || []) {
+    if (f.required && !(f.name in request.fields)) {
+      need(false, document.querySelector(`[data-field="${CSS.escape(f.name)}"]`), f.name);
+    }
+  }
+  return missing;
+}
+
+// a message above the Create button: text, an optional list, links and buttons
+function showCreateMessage({ text, kind = "", items = [], links = [], buttons = [] }) {
+  const box = document.getElementById("create-message");
+  box.hidden = !text;
+  box.className = `message ${kind}`;
+  box.replaceChildren(text || "");
+  if (items.length || links.length) {
+    const list = document.createElement("ul");
+    for (const item of items) list.append(Object.assign(document.createElement("li"), { textContent: item }));
+    for (const link of links) {
+      const li = document.createElement("li");
+      li.append(Object.assign(document.createElement("a"), {
+        href: link.url, target: "_blank", rel: "noopener", textContent: link.text,
+      }));
+      if (link.after) li.append(link.after);
+      list.append(li);
+    }
+    box.append(list);
+  }
+  if (buttons.length) {
+    const row = Object.assign(document.createElement("div"), { className: "buttons" });
+    row.style.marginTop = "0.6em";
+    for (const b of buttons) {
+      const button = Object.assign(document.createElement("button"), {
+        type: "button", textContent: b.text, className: b.secondary ? "secondary" : "",
+      });
+      button.addEventListener("click", b.onClick);
+      row.append(button);
+    }
+    box.append(row);
+  }
+  box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+async function onCreate(event, confirmSameLot = false) {
+  event?.preventDefault(); // stop the browser's own form submit (it would reload the page)
+  document.querySelectorAll(".missing").forEach((el) => el.classList.remove("missing"));
+
+  const request = buildRequest();
+  const missing = missingAnswers(request);
+  if (missing.length) {
+    missing.forEach((m) => m.element?.classList.add("missing"));
+    showCreateMessage({ text: "Please fill in:", kind: "error", items: missing.map((m) => m.text) });
+    missing[0].element?.focus();
+    return;
+  }
+  if (confirmSameLot) request.confirm_same_lot = true;
+
+  // one click = one request: the button stays disabled until the answer is back
+  const button = document.getElementById("create-button");
+  button.disabled = true;
+  button.textContent = "Creating…";
+  try {
+    const { status, data } = await postJSON("/resources", request);
+    if (status === 201) showCreated(data);
+    else if (status === 409) showSameLot(data);
+    else showCreateMessage({ text: data.error || `Creating failed (${status}).`, kind: "error" });
+  } catch (e) {
+    showCreateMessage({ text: `Could not reach the server: ${e.message}`, kind: "error" });
+  } finally {
+    button.disabled = false;
+    button.textContent = "Create";
+  }
+}
+
+// 409: bottles from this lot are already in the ELN; ask about the label
+function showSameLot(data) {
+  showCreateMessage({
+    text: `${data.error}. ${data.question}`,
+    links: data.same_lot.map((b) => ({ url: b.url, text: `#${b.id} ${b.title}` })),
+    buttons: [
+      { text: "It's another bottle: add it", onClick: () => onCreate(null, true) },
+      { text: "Cancel", secondary: true, onClick: () => showCreateMessage({}) },
+    ],
+  });
+}
+
+// 201: the bottle(s) exist. Show their numbers, tags, and any step to finish by hand.
+function showCreated(data) {
+  document.getElementById("bottle-form").classList.add("done");
+  const bottles = data.bottles;
+  const links = bottles.map((b) => ({
+    url: b.url,
+    text: `#${b.id} ${document.getElementById("title").value}`,
+    after: b.tags.length ? ` · ${b.tags.join(", ")}` : "",
+  }));
+  const problems = [...data.problems, ...bottles.flatMap((b) => b.problems.map((p) => `#${b.id}: ${p}`))];
+  showCreateMessage({
+    text: `✔ Created ${bottles.length === 1 ? "bottle" : `${bottles.length} bottles`}. Write the number on the bottle, or print its label:`,
+    kind: problems.length ? "" : "ok",
+    links,
+    items: problems.map((p) => `⚠ ${p} (finish this in eLabFTW)`),
+    buttons: [{ text: "Add another bottle", onClick: () => window.location.reload() }],
+  });
+}
+
 // ---------- start ----------
 
 async function start() {
   document.getElementById("category").addEventListener("change", onCategoryChange);
   document.getElementById("title").addEventListener("input", () => { titleTouched = true; updatePreview(); });
+  document.getElementById("bottle-form").addEventListener("submit", onCreate);
   document.getElementById("room").addEventListener("change", onRoomChange);
   for (const id of ["amount", "unit", "count"]) {
     document.getElementById(id).addEventListener("input", updatePreview);
@@ -424,6 +547,10 @@ async function start() {
   document.getElementById("state-slot").addEventListener("change", () => { fillUnits(); updatePreview(); });
   document.getElementById("place").addEventListener("change", onPlaceChange);
   document.getElementById("add-place-button").addEventListener("click", () => addPlace(false));
+  // Enter in the new place's name adds the place (instead of submitting the whole form)
+  document.getElementById("new-place-name").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addPlace(false); }
+  });
   document.getElementById("add-place-cancel").addEventListener("click", () => {
     hideAddPlace();
     document.getElementById("place").value = "";

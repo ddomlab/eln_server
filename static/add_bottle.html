@@ -63,6 +63,16 @@
     .message { margin: 0.5em 0; padding: 0.5em 0.8em; border: 2px solid #999; background: #f7f7f7; }
     .message.error { border-color: #b00; background: #fff0f0; }
     .message.ok { border-color: #070; background: #effaef; }
+    .message ul { margin: 0.4em 0 0; padding-left: 1.2em; }
+    .message a { color: inherit; font-weight: 700; }
+
+    button.create { display: block; width: 100%; padding: 0.9em; font-size: 1.05em; margin: 1em 0; }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    .missing { border-color: #b00 !important; box-shadow: 2px 2px 0 #f3b5b5 !important; }
+    details { margin-top: 1em; font-size: 0.9em; }
+
+    /* after creating: the form is done, only the result stays */
+    form.done > .field, form.done fieldset, form.done #create-button, form.done details { display: none; }
   </style>
 </head>
 <body>
@@ -149,11 +159,15 @@
         <div id="bottle-fields"></div>
       </fieldset>
 
-      <!-- for now: what the Create button will send (replaced by the button in D4d) -->
-      <fieldset>
-        <legend>What "Create" will send</legend>
+      <!-- the Create button and what happened -->
+      <div id="create-message" class="message" hidden></div>
+      <button type="submit" id="create-button" class="create">Create</button>
+
+      <!-- for the curious: the request the button sends -->
+      <details>
+        <summary>Show what "Create" sends</summary>
         <pre id="preview">{}</pre>
-      </fieldset>
+      </details>
     </form>
   </div>
 
