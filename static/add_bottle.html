@@ -119,6 +119,25 @@
         </div>
       </fieldset>
 
+      <!-- 3. HOW MUCH: the State field (moved here from the template's fields), amount + unit, count -->
+      <fieldset>
+        <legend>3. How much</legend>
+        <div id="state-slot"></div>
+        <div class="field">
+          <label for="amount" class="required">Amount in this bottle</label>
+          <div class="with-unit">
+            <input id="amount" type="number" min="0" step="any" />
+            <select id="unit" style="max-width: 9em"></select>
+          </div>
+          <div class="hint">eLabFTW keeps 2 decimals. Units are not converted.</div>
+        </div>
+        <div class="field">
+          <label for="count">Number of bottles</label>
+          <input id="count" type="number" min="1" max="20" step="1" value="1" style="max-width: 9em" />
+          <div class="hint">Identical bottles from one order; each gets its own number and label.</div>
+        </div>
+      </fieldset>
+
       <!-- 4. THIS BOTTLE: name + the template's fields that stay on the bottle -->
       <fieldset>
         <legend>This bottle</legend>

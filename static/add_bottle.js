@@ -270,6 +270,34 @@ async function addPlace(confirm = false) {
   }
 }
 
+// ---------- 3. how much ----------
+
+// the State the user chose ("Liquid", "Solid", "Gas"), or "" if none yet
+function currentState() {
+  return document.querySelector('[data-field="State"]')?.value || "";
+}
+
+// units for the chosen State first, then eLabFTW's other units (for unusual cases)
+function fillUnits() {
+  const select = document.getElementById("unit");
+  const previous = select.value;
+  const suggested = formInfo.units_by_state[currentState()] || [];
+  select.innerHTML = "";
+  select.add(new Option("unit", ""));
+  for (const unit of suggested) select.add(new Option(unit, unit));
+  const others = formInfo.units.filter((u) => !suggested.includes(u));
+  if (suggested.length) {
+    const divider = new Option("— other units —", "");
+    divider.disabled = true;
+    select.add(divider);
+  }
+  for (const unit of others) select.add(new Option(unit, unit));
+  // keep the unit if it suits the State (or no State is chosen); else the State's usual one
+  const usual = { Liquid: "mL", Solid: "g", Gas: "bar" }[currentState()] || "";
+  const keep = previous && (suggested.length === 0 || suggested.includes(previous));
+  select.value = keep ? previous : usual;
+}
+
 // ---------- the bottle's name ----------
 
 function updateTitle() {
@@ -284,8 +312,14 @@ function updateTitle() {
 
 function drawBottleFields() {
   const box = document.getElementById("bottle-fields");
+  const stateSlot = document.getElementById("state-slot");
   box.innerHTML = "";
-  for (const f of currentCategory()?.fields || []) box.append(fieldElement(f));
+  stateSlot.innerHTML = "";
+  for (const f of currentCategory()?.fields || []) {
+    // State decides the units, so it sits in "3. How much" next to the amount
+    (f.name === "State" ? stateSlot : box).append(fieldElement(f));
+  }
+  fillUnits();
 }
 
 // one form field for a template field: select, date, number (with unit) or text
@@ -339,7 +373,7 @@ function fieldElement(f) {
 // the value of every bottle field the user filled in: {name: value}
 function bottleFieldValues() {
   const values = {};
-  for (const input of document.querySelectorAll("#bottle-fields [data-field]")) {
+  for (const input of document.querySelectorAll("#bottle-form [data-field]")) {
     let value = input.value.trim();
     if (value === OTHER) {
       value = document.querySelector(`[data-other-for="${CSS.escape(input.dataset.field)}"]`).value.trim();
@@ -357,10 +391,20 @@ function buildRequest() {
     category: currentCategory()?.id ?? null,
     title: document.getElementById("title").value.trim(),
     compounds: picked.filter(Boolean).map((c) => c.id),
-    storage: { place_id: parseInt(document.getElementById("place").value, 10) || null },
+    storage: {
+      place_id: parseInt(document.getElementById("place").value, 10) || null,
+      amount: amountValue(),
+      unit: document.getElementById("unit").value,
+    },
+    count: parseInt(document.getElementById("count").value, 10) || 1,
     fields: bottleFieldValues(),
-    // amount, unit (D4c) and count (D4c) come next
   };
+}
+
+// the amount as a number, or null if the box is empty
+function amountValue() {
+  const text = document.getElementById("amount").value.trim();
+  return text === "" ? null : Number(text);
 }
 
 function updatePreview() {
@@ -373,6 +417,11 @@ async function start() {
   document.getElementById("category").addEventListener("change", onCategoryChange);
   document.getElementById("title").addEventListener("input", () => { titleTouched = true; updatePreview(); });
   document.getElementById("room").addEventListener("change", onRoomChange);
+  for (const id of ["amount", "unit", "count"]) {
+    document.getElementById(id).addEventListener("input", updatePreview);
+  }
+  // choosing a State changes the units on offer
+  document.getElementById("state-slot").addEventListener("change", () => { fillUnits(); updatePreview(); });
   document.getElementById("place").addEventListener("change", onPlaceChange);
   document.getElementById("add-place-button").addEventListener("click", () => addPlace(false));
   document.getElementById("add-place-cancel").addEventListener("click", () => {
