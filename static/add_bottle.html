@@ -71,6 +71,13 @@
     .missing { border-color: #b00 !important; box-shadow: 2px 2px 0 #f3b5b5 !important; }
     details { margin-top: 1em; font-size: 0.9em; }
 
+    /* a button that looks like a link ("Not in the list? Search PubChem") */
+    button.link { background: none; border: none; color: #0645ad; padding: 0; font-weight: 400;
+                  font-size: 0.85em; text-decoration: underline; margin-top: 0.3em; }
+    .candidate { border-top: 1px solid #ccc; padding: 0.6em 0; font-size: 0.9em; }
+    .candidate:first-child { border-top: none; }
+    .candidate .buttons { margin-top: 0.4em; }
+
     /* after creating: the form is done, only the result stays */
     form.done > .field, form.done fieldset, form.done #create-button, form.done details { display: none; }
   </style>

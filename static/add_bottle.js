@@ -4,6 +4,7 @@
 //   GET /storage_tree    -> rooms and the places inside them
 //   POST /storage_units  -> add a new place (the server refuses near-duplicate names)
 //   POST /resources      -> create the bottle(s)
+//   GET /compounds/pubchem, POST /compounds -> find a missing compound in PubChem and add it
 // The user's API key travels by itself in the apiKey cookie.
 
 // what the page knows, filled once when it opens
@@ -93,10 +94,22 @@ function drawCompoundPickers() {
       <label class="required" for="compound-${i}">${slotName}</label>
       <input id="compound-${i}" list="compound-options" autocomplete="off"
              placeholder="Type a name or CAS number" />
-      <div class="hint">Not in the list? Searching PubChem comes next (D4e).</div>
+      <button type="button" class="link" id="pubchem-toggle-${i}">Not in the list? Search PubChem</button>
+      <div class="subform" id="pubchem-${i}" hidden>
+        <div class="with-unit">
+          <input id="pubchem-query-${i}" type="text" autocomplete="off" placeholder="CAS number (best) or name" />
+          <button type="button" id="pubchem-search-${i}">Search</button>
+        </div>
+        <div id="pubchem-results-${i}"></div>
+      </div>
       <div class="compound-card" id="compound-card-${i}" hidden></div>`;
     box.append(field);
-    field.querySelector("input").addEventListener("input", (e) => onCompoundPicked(i, e.target.value));
+    field.querySelector(`#compound-${i}`).addEventListener("input", (e) => onCompoundPicked(i, e.target.value));
+    field.querySelector(`#pubchem-toggle-${i}`).addEventListener("click", () => togglePubChem(i));
+    field.querySelector(`#pubchem-search-${i}`).addEventListener("click", () => searchPubChem(i));
+    field.querySelector(`#pubchem-query-${i}`).addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); searchPubChem(i); }
+    });
   });
 }
 
@@ -121,6 +134,113 @@ function showCompoundCard(slot) {
   if (chips.length === 0) chips.push(chip("No hazard data: check the SDS", "none"));
   const name = Object.assign(document.createElement("strong"), { textContent: c.name });
   card.replaceChildren(name, ` · CAS ${c.cas || "—"} · ${c.formula || ""}`, document.createElement("br"), ...chips);
+}
+
+// ---------- 1b. a compound that isn't in the list: PubChem ----------
+
+function togglePubChem(slot) {
+  const box = document.getElementById(`pubchem-${slot}`);
+  box.hidden = !box.hidden;
+  if (!box.hidden) {
+    // start from what was typed in the compound box, if it looks useful
+    const typed = document.getElementById(`compound-${slot}`).value.trim();
+    const query = document.getElementById(`pubchem-query-${slot}`);
+    if (typed && !query.value) query.value = typed;
+    query.focus();
+  }
+}
+
+const looksLikeCas = (text) => /^\d{2,7}-\d{2}-\d$/.test(text);
+
+// a short message (and optional buttons) in a slot's PubChem box
+function pubchemMessage(slot, text, kind = "") {
+  const results = document.getElementById(`pubchem-results-${slot}`);
+  results.replaceChildren(Object.assign(document.createElement("div"), { className: `message ${kind}`, textContent: text }));
+}
+
+// GET /compounds/pubchem: read-only lookup; nothing is saved yet
+async function searchPubChem(slot) {
+  const query = document.getElementById(`pubchem-query-${slot}`).value.trim();
+  if (!query) return pubchemMessage(slot, "Type a CAS number or a name.", "error");
+  const cas = looksLikeCas(query) ? query : "";
+  pubchemMessage(slot, "Searching PubChem…");
+  const response = await fetch(`/compounds/pubchem?${new URLSearchParams(cas ? { cas } : { name: query })}`);
+  const data = await response.json();
+  if (response.status === 404) return pubchemMessage(slot, `PubChem found nothing for "${query}". Check the CAS number on the bottle, or try again in a minute (PubChem is sometimes busy).`, "error");
+  if (!response.ok) return pubchemMessage(slot, data.error || `Search failed (${response.status}). Try again.`, "error");
+  showCandidates(slot, data.candidates, cas);
+}
+
+// one row per PubChem match, with what the user can do with it
+function showCandidates(slot, candidates, cas) {
+  const results = document.getElementById(`pubchem-results-${slot}`);
+  results.replaceChildren();
+  for (const { pubchem, existing, reason, can_restore } of candidates) {
+    const row = Object.assign(document.createElement("div"), { className: "candidate" });
+    const title = Object.assign(document.createElement("strong"), { textContent: pubchem.name });
+    row.append(title, ` · CAS ${pubchem.cas || "—"} · ${pubchem.formula || ""} · PubChem ${pubchem.cid}`);
+
+    const buttons = Object.assign(document.createElement("div"), { className: "buttons" });
+    const addButton = (text, onClick, secondary = false) => {
+      const b = Object.assign(document.createElement("button"), { type: "button", textContent: text, className: secondary ? "secondary" : "" });
+      b.addEventListener("click", onClick);
+      buttons.append(b);
+    };
+    const note = (text) => row.append(Object.assign(document.createElement("div"), { className: "hint", textContent: text }));
+
+    if (existing && !existing.deleted) {
+      note(`Already in the ELN as #${existing.id} ${existing.name} (${reason}).`);
+      addButton(`Use #${existing.id} ${existing.name}`, () => pickCompoundById(slot, existing.id));
+    } else if (existing && can_restore) {
+      note(`This compound was deleted earlier as #${existing.id} ${existing.name} (${reason}). It can be brought back with fresh details from PubChem.`);
+      addButton(`Restore #${existing.id}`, () => addCompound(slot, pubchem.cid, cas, existing.id));
+    } else if (existing) {
+      note(`It matches several old, deleted compounds (e.g. #${existing.id}). Ask a lab admin to sort them out.`);
+    } else {
+      addButton("Add this compound to the ELN", () => addCompound(slot, pubchem.cid, cas));
+    }
+    row.append(buttons);
+    results.append(row);
+  }
+}
+
+// POST /compounds: create it (or restore the deleted one), then pick it for this bottle
+async function addCompound(slot, cid, cas, restoreId = null) {
+  pubchemMessage(slot, restoreId ? "Restoring…" : "Adding to the ELN…");
+  const body = { cid, cas: cas || null };
+  if (restoreId) body.restore = restoreId;
+  const { status, data } = await postJSON("/compounds", body);
+  if (status === 201 || status === 200) {
+    await pickCompoundById(slot, data.id);
+    const what = data.restored ? "Restored" : "Added to the ELN";
+    const hazards = data.pictograms === null ? " PubChem has no hazard data for it: check the SDS." : "";
+    setCompoundNote(slot, `✔ ${what} as #${data.id} ${data.name}.${hazards}`);
+  } else if (status === 409) {
+    pubchemMessage(slot, `${data.error}: #${data.existing.id} ${data.existing.name}.`, "error");
+  } else {
+    pubchemMessage(slot, data.error || `Adding failed (${status}).`, "error");
+  }
+}
+
+// reload the compound list (a new one was added) and pick that compound in this slot
+async function pickCompoundById(slot, id) {
+  compounds = await getJSON("/compounds_list");
+  fillCompoundOptions();
+  const compound = compounds.find((c) => c.id === id);
+  if (!compound) return;
+  const input = document.getElementById(`compound-${slot}`);
+  input.value = compoundLabel(compound);
+  onCompoundPicked(slot, input.value);
+  document.getElementById(`pubchem-${slot}`).hidden = true;
+  document.getElementById(`pubchem-results-${slot}`).replaceChildren();
+  setCompoundNote(slot, "");
+}
+
+// a line under the compound card ("✔ Added to the ELN as #162 …")
+function setCompoundNote(slot, text) {
+  const card = document.getElementById(`compound-card-${slot}`);
+  card.querySelector(".hint")?.remove();
+  if (text) card.append(Object.assign(document.createElement("div"), { className: "hint", textContent: text }));
 }
 
 // copy the picked compounds' CAS (and the solvent's name) into the bottle's fields,
