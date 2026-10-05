@@ -51,6 +51,18 @@
     pre { background: #f4f4f4; border: 2px solid #ccc; padding: 0.8em; overflow-x: auto; font-size: 0.8em; }
 
     .back { display: inline-block; margin-bottom: 1em; color: #111; }
+
+    /* small forms inside a section, like "add a new place" */
+    .subform { border: 2px dashed #999; padding: 0.8em 1em; margin-top: 0.5em; }
+    .buttons { display: flex; gap: 0.5em; flex-wrap: wrap; }
+    button {
+      padding: 0.5em 1em; border: 2px solid #000; background: #000; color: #fff;
+      font-weight: 700; font-size: 0.95em; cursor: pointer; border-radius: 0;
+    }
+    button.secondary { background: #fff; color: #000; }
+    .message { margin: 0.5em 0; padding: 0.5em 0.8em; border: 2px solid #999; background: #f7f7f7; }
+    .message.error { border-color: #b00; background: #fff0f0; }
+    .message.ok { border-color: #070; background: #effaef; }
   </style>
 </head>
 <body>
@@ -74,6 +86,37 @@
         <legend>1. What is in it</legend>
         <div id="compound-pickers"></div>
         <datalist id="compound-options"></datalist>
+      </fieldset>
+
+      <!-- 2. WHERE: room, then a place inside it (from the storage tree) -->
+      <fieldset>
+        <legend>2. Where it is kept</legend>
+        <div class="field">
+          <label for="room" class="required">Room</label>
+          <select id="room"></select>
+        </div>
+        <div class="field">
+          <label for="place" class="required">Place</label>
+          <select id="place"></select>
+          <div id="place-note" class="hint"></div>
+        </div>
+
+        <!-- shown when "+ Add a new place…" is chosen -->
+        <div id="add-place" class="subform" hidden>
+          <div class="field">
+            <label for="new-place-parent">Inside</label>
+            <select id="new-place-parent"></select>
+          </div>
+          <div class="field">
+            <label for="new-place-name">Name of the new place</label>
+            <input id="new-place-name" type="text" autocomplete="off" placeholder="e.g. Shelf 2" />
+          </div>
+          <div id="add-place-message" class="message" hidden></div>
+          <div class="buttons">
+            <button type="button" id="add-place-button">Add place</button>
+            <button type="button" id="add-place-cancel" class="secondary">Cancel</button>
+          </div>
+        </div>
       </fieldset>
 
       <!-- 4. THIS BOTTLE: name + the template's fields that stay on the bottle -->
