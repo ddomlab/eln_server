@@ -177,6 +177,17 @@ class Resource_Manager:
         response = self.get_url("/storage_units?hierarchy=true")
         response.raise_for_status()
         return response.json()
+
+    def create_storage_unit(self, name: str, parent_id: int) -> int:
+        """
+        Creates a storage place inside another one. Prefer storage_places.create_place_safely(),
+        which refuses duplicate names (eLabFTW accepts any name).
+            :return: The new place's id.
+        """
+        response = self.post_url("/storage_units", json={"name": name, "parent_id": parent_id})
+        response.raise_for_status()
+        return int(str(response.headers["Location"]).rstrip("/").split("/").pop())
+
     def add_tag(self, item_id: int, tag: str):
         """
         Adds a tag to an item in the ELN with the given item ID and tag. Take care to use correct capitalization/whitespace

@@ -10,6 +10,7 @@ import pytest
 
 import eln_common.compound_import as compound_import
 import eln_common.pubchem as pubchem
+import eln_common.storage_places as storage_places
 import web.interface as interface
 import web.search_process as search_process
 from automations.labels.generate_label import LabelGenerator
@@ -684,6 +685,113 @@ class TestCompoundRoutes:
                                       {"cid": 6251, "restore": "8"}, {"cid": 6251, "restore": True}])
     def test_create_rejects_bad_input(self, client, body):
         assert client.post("/compounds", json=body).status_code == 400
+
+
+STORAGE = [
+    {"id": 4, "name": "Room 3057", "parent_id": None, "full_path": "Room 3057"},
+    {"id": 5, "name": "Front hood", "parent_id": 4, "full_path": "Room 3057 > Front hood"},
+    {"id": 6, "name": "Flammable cabinet", "parent_id": 5, "full_path": "Room 3057 > Front hood > Flammable cabinet"},
+    {"id": 7, "name": "Corrosive cabinet", "parent_id": 5, "full_path": "Room 3057 > Front hood > Corrosive cabinet"},
+    {"id": 16, "name": "Room 3053", "parent_id": None, "full_path": "Room 3053"},
+    {"id": 21, "name": "Shelf 1", "parent_id": 16, "full_path": "Room 3053 > Shelf 1"},
+]
+
+
+class FakeStorageRM:
+    """Stand-in for the storage calls of Resource_Manager."""
+
+    def __init__(self, units=STORAGE, create_returns=30):
+        self.units = units
+        self.create_returns = create_returns
+        self.created = []
+
+    def get_storage_units(self):
+        return self.units
+
+    def create_storage_unit(self, name, parent_id):
+        self.created.append((name, parent_id))
+        return self.create_returns
+
+
+class TestStoragePlaces:
+    """eLabFTW accepts any name, so near-duplicates are caught before creating."""
+
+    def test_new_name_is_created_with_its_full_path(self):
+        rm = FakeStorageRM()
+        place = storage_places.create_place_safely(rm, "  Shelf   2 ", 16)
+        assert rm.created == [("Shelf 2", 16)]
+        assert place == {"id": 30, "name": "Shelf 2", "parent_id": 16, "full_path": "Room 3053 > Shelf 2"}
+
+    @pytest.mark.parametrize("name", ["Flammable cabinet", "flammable CABINET", " Flammable  cabinet "])
+    def test_same_name_in_same_parent_is_refused_even_if_confirmed(self, name):
+        rm = FakeStorageRM()
+        with pytest.raises(storage_places.PlaceClash) as e:
+            storage_places.create_place_safely(rm, name, 5, confirm_similar=True)
+        assert e.value.exact and e.value.existing["id"] == 6
+        assert rm.created == []
+
+    def test_similar_name_needs_confirmation(self):
+        rm = FakeStorageRM()
+        with pytest.raises(storage_places.PlaceClash) as e:
+            storage_places.create_place_safely(rm, "Flamable cabinet", 5)
+        assert not e.value.exact and e.value.existing["id"] == 6
+        assert rm.created == []
+        storage_places.create_place_safely(rm, "Flamable cabinet", 5, confirm_similar=True)
+        assert rm.created == [("Flamable cabinet", 5)]
+
+    def test_same_name_in_another_parent_is_fine(self):
+        rm = FakeStorageRM()
+        storage_places.create_place_safely(rm, "Flammable cabinet", 16)
+        assert rm.created == [("Flammable cabinet", 16)]
+
+    @pytest.mark.parametrize("name", ["Corrosive shelf", "Shelf 2", "Base cabinet"])
+    def test_different_names_are_not_similar(self, name):
+        assert storage_places.find_clash(name, 16, STORAGE + [
+            {"id": 22, "name": "Acid cabinet", "parent_id": 16}]) is None
+
+    def test_unknown_parent(self):
+        with pytest.raises(storage_places.UnknownParent):
+            storage_places.create_place_safely(FakeStorageRM(), "Shelf 2", 999)
+
+    @pytest.mark.parametrize("name", ["", "   ", "x" * 256])
+    def test_bad_names(self, name):
+        with pytest.raises(ValueError):
+            storage_places.create_place_safely(FakeStorageRM(), name, 16)
+
+
+class TestStorageRoutes:
+    def test_create_returns_201(self, client, monkeypatch):
+        monkeypatch.setattr(interface, "rm", lambda: FakeStorageRM())
+        resp = client.post("/storage_units", json={"name": "Shelf 2", "parent_id": 16})
+        assert resp.status_code == 201 and resp.get_json()["full_path"] == "Room 3053 > Shelf 2"
+
+    def test_exact_clash_is_409_with_existing(self, client, monkeypatch):
+        monkeypatch.setattr(interface, "rm", lambda: FakeStorageRM())
+        resp = client.post("/storage_units", json={"name": "flammable cabinet", "parent_id": 5, "confirm": True})
+        assert resp.status_code == 409
+        assert resp.get_json()["exact"] is True and resp.get_json()["existing"]["id"] == 6
+
+    def test_similar_is_409_then_confirm_creates(self, client, monkeypatch):
+        rm = FakeStorageRM()
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        resp = client.post("/storage_units", json={"name": "Flamable cabinet", "parent_id": 5})
+        assert resp.status_code == 409 and resp.get_json()["exact"] is False
+        resp = client.post("/storage_units", json={"name": "Flamable cabinet", "parent_id": 5, "confirm": True})
+        assert resp.status_code == 201
+
+    def test_unknown_parent_is_404(self, client, monkeypatch):
+        monkeypatch.setattr(interface, "rm", lambda: FakeStorageRM())
+        assert client.post("/storage_units", json={"name": "Shelf 2", "parent_id": 999}).status_code == 404
+
+    @pytest.mark.parametrize("body", [{}, {"name": "Shelf 2"}, {"name": "Shelf 2", "parent_id": "16"},
+                                      {"name": "Shelf 2", "parent_id": True}, {"parent_id": 16},
+                                      {"name": " ", "parent_id": 16}])
+    def test_bad_input_is_400(self, client, monkeypatch, body):
+        monkeypatch.setattr(interface, "rm", lambda: FakeStorageRM())
+        assert client.post("/storage_units", json=body).status_code == 400
+
+    def test_needs_an_api_key(self, client):
+        assert client.post("/storage_units", json={"name": "Shelf 2", "parent_id": 16}).status_code == 401
 
 
 class TestCreateItemFromTemplate:

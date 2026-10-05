@@ -3,10 +3,12 @@ from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, request, send_from_directory
 from flask_cors import cross_origin
+from requests import HTTPError
 
 import eln_common.compound_import as compound_import
 import eln_common.config as config
 import eln_common.pubchem as pubchem
+import eln_common.storage_places as storage_places
 from eln_common.fill_info import check_if_cas
 import web.label_creating as label_creating
 import web.print_handling as print_handling
@@ -186,26 +188,64 @@ def create_compound():
     return jsonify(result), 200 if result["restored"] else 201
 
 
+def _place(unit: dict) -> dict:
+    """A storage place as the page uses it."""
+    return {
+        "id": unit["id"],
+        "name": unit["name"],
+        "parent_id": unit.get("parent_id"),
+        "full_path": unit.get("full_path") or unit["name"],
+    }
+
+
 @interface_bp.route('/storage_tree', methods=['GET'])
 @cross_origin(origins="http://localhost:8000")
 def storage_tree():
     """Storage places as [{id, name, parent_id, full_path}], for the
     Room -> Place dropdowns (rooms have parent_id null)."""
     try:
-        units = rm().get_storage_units()
-        return jsonify([
-            {
-                "id": u["id"],
-                "name": u["name"],
-                "parent_id": u.get("parent_id"),
-                "full_path": u.get("full_path") or u["name"],
-            }
-            for u in units
-        ])
+        return jsonify([_place(u) for u in rm().get_storage_units()])
     except ValueError as e:
         return jsonify({"status": "error", "error": str(e)}), 401
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 400
+
+
+@interface_bp.route('/storage_units', methods=['POST'])
+@cross_origin(origins="http://localhost:8000")
+def create_storage_unit():
+    """Adds a storage place inside an existing one: {name, parent_id, confirm}.
+    201 with the new place; 409 with the existing place when one in the same parent
+    has the same name (exact: true) or a similar one (exact: false; send again with
+    confirm: true to add it anyway). New rooms are added in eLabFTW, not here."""
+    data = request.get_json(force=True, silent=True) or {}
+    name = data.get('name')
+    parent_id = data.get('parent_id')
+    if not isinstance(name, str):
+        return jsonify({"status": "error", "error": "The place needs a name"}), 400
+    if not isinstance(parent_id, int) or isinstance(parent_id, bool):
+        return jsonify({"status": "error",
+                        "error": "Choose the room or place to add it in (parent_id)"}), 400
+    try:
+        rmn = rm()
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    try:
+        place = storage_places.create_place_safely(rmn, name, parent_id, data.get('confirm') is True)
+    except storage_places.PlaceClash as e:
+        return jsonify({"status": "error", "error": str(e), "exact": e.exact,
+                        "existing": _place(e.existing)}), 409
+    except storage_places.UnknownParent as e:
+        return jsonify({"status": "error", "error": str(e)}), 404
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 400
+    except HTTPError as e:
+        # e.g. 403 when eLabFTW does not let this user manage storage places
+        status = e.response.status_code if e.response is not None else 500
+        return jsonify({"status": "error", "error": f"eLabFTW refused: {e}"}), status
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+    return jsonify(place), 201
 
 
 # the team-ID settings that the web settings page may change, with their coercers
