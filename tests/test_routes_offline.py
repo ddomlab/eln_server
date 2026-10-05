@@ -547,16 +547,30 @@ class FakePubChem:
 
 
 def ghs_answer(*sources):
-    """A PubChem GHS Classification record; each source is a list of pictogram codes."""
-    info = []
-    for codes in sources:
-        info.append({"Name": "Pictogram(s)", "Value": {"StringWithMarkup": [{"String": "", "Markup": [
-            {"URL": f"https://pubchem.ncbi.nlm.nih.gov/images/ghs/{c}.svg", "Type": "Icon"}
-            for c in codes]}]}})
-        info.append({"Name": "Signal", "Value": {"StringWithMarkup": [{"String": "Danger"}]}})
+    """A PubChem GHS Classification record, shaped like the real ones. Each source is a list of
+    pictogram codes, or a dict {source, pictograms, reports, not_hazardous_percent}."""
+    info, references = [], []
+    for ref, src in enumerate(sources, start=1):
+        if isinstance(src, list):
+            src = {"pictograms": src}
+        references.append({"ReferenceNumber": ref, "SourceName": src.get("source", f"Source {ref}")})
+        if "not_hazardous_percent" in src:
+            info.append({"ReferenceNumber": ref, "Name": "Note", "Value": {"StringWithMarkup": [{"String":
+                f"This chemical does not meet GHS hazard criteria for {src['not_hazardous_percent']}% (x of y) of all reports."}]}})
+        if src.get("pictograms"):
+            info.append({"ReferenceNumber": ref, "Name": "Pictogram(s)", "Value": {"StringWithMarkup": [
+                {"String": "", "Markup": [{"URL": f"https://pubchem.ncbi.nlm.nih.gov/images/ghs/{c}.svg", "Type": "Icon"}
+                                          for c in src["pictograms"]]}]}})
+        if "reports" in src:
+            info.append({"ReferenceNumber": ref, "Name": "ECHA C&L Notifications Summary", "Value": {"StringWithMarkup": [
+                {"String": f"Aggregated GHS information provided per {src['reports']} reports by companies from 9 notifications."}]}})
     section = {"TOCHeading": "GHS Classification", "Information": info}
-    return {"Record": {"Section": [{"TOCHeading": "Safety and Hazards", "Section": [
+    return {"Record": {"Reference": references, "Section": [{"TOCHeading": "Safety and Hazards", "Section": [
         {"TOCHeading": "Hazards Identification", "Section": [section]}]}]}}
+
+
+OFFICIAL = "Regulation (EC) No 1272/2008 of the European Parliament and of the Council"
+ECHA = "European Chemicals Agency (ECHA)"
 
 
 THF_PROPERTIES = {"PropertyTable": {"Properties": [{
@@ -570,11 +584,33 @@ THF_SYNONYMS = {"InformationList": {"Information": [
 class TestPubChem:
     """eln_common.pubchem with PubChem's answers faked (shapes copied from real ones)."""
 
-    def test_pictograms_from_all_sources_are_combined(self, monkeypatch):
-        fake = FakePubChem({"/pug_view/data/compound/8028/": ghs_answer(["GHS02", "GHS07", "GHS08"], ["GHS07"])})
+    def test_without_eu_or_echa_data_other_sources_are_combined(self, monkeypatch):
+        fake = FakePubChem({"/pug_view/data/compound/8028/": ghs_answer(["GHS02", "GHS07"], ["GHS08"])})
         monkeypatch.setattr(pubchem, "requests", fake)
         assert pubchem.ghs_pictograms(8028) == ["GHS02", "GHS07", "GHS08"]
         assert fake.calls[0][1]["params"] == {"heading": "GHS Classification"}
+
+    def test_official_eu_classification_wins(self, monkeypatch):
+        # hydrogen peroxide: Japan's NITE lists concentrated grades with more pictograms
+        monkeypatch.setattr(pubchem, "requests", FakePubChem({"/pug_view/": ghs_answer(
+            {"source": OFFICIAL, "pictograms": ["GHS03", "GHS05", "GHS07"]},
+            {"source": ECHA, "pictograms": ["GHS03", "GHS05", "GHS07"], "reports": 1964, "not_hazardous_percent": 0.1},
+            {"source": "NITE-CMC", "pictograms": ["GHS03", "GHS05", "GHS06", "GHS07", "GHS08", "GHS09"]})}))
+        assert pubchem.ghs_pictograms(784) == ["GHS03", "GHS05", "GHS07"]
+
+    def test_echa_main_summary_saying_not_hazardous_means_none(self, monkeypatch):
+        # water: 99.5% of 1876 reports say not hazardous; a 39-report group (another substance) says GHS07
+        monkeypatch.setattr(pubchem, "requests", FakePubChem({"/pug_view/": ghs_answer(
+            {"source": ECHA, "reports": 1876, "not_hazardous_percent": 99.5},
+            {"source": ECHA, "pictograms": ["GHS07"], "reports": 39})}))
+        assert pubchem.ghs_pictograms(962) == []
+
+    def test_echa_main_summary_is_used_without_eu_classification(self, monkeypatch):
+        monkeypatch.setattr(pubchem, "requests", FakePubChem({"/pug_view/": ghs_answer(
+            {"source": ECHA, "pictograms": ["GHS02", "GHS07"], "reports": 500, "not_hazardous_percent": 2},
+            {"source": ECHA, "pictograms": ["GHS06"], "reports": 3},
+            {"source": "NITE-CMC", "pictograms": ["GHS09"]})}))
+        assert pubchem.ghs_pictograms(1) == ["GHS02", "GHS07"]
 
     def test_classified_without_pictograms_is_empty_list(self, monkeypatch):
         # like glucose: PubChem has a GHS section but no source gives a pictogram

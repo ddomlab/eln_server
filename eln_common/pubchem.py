@@ -89,11 +89,19 @@ def cas_number(cid: int) -> str | None:
     return next((s for s in synonyms if check_if_cas(s)), None)
 
 
+OFFICIAL_SOURCE = "Regulation (EC) No 1272/2008"  # the EU's legal (harmonised) classification
+ECHA_SOURCE = "European Chemicals Agency (ECHA)"   # company notifications, summarised by ECHA
+
+
 def ghs_pictograms(cid: int) -> list[str] | None:
     """
-    The GHS hazard pictograms PubChem lists for a compound, e.g. ["GHS02", "GHS07"].
-    PubChem gives one classification per source (ECHA, suppliers...); a pictogram is
-    included if any source gives it, as the more cautious choice.
+    The GHS hazard pictograms for a compound, e.g. ["GHS02", "GHS07"], chosen the way a
+    supplier's SDS would be (PubChem lists one classification per source, and some are
+    for other grades or even other substances):
+      1. the EU's official classification, when there is one;
+      2. otherwise ECHA's main summary (the one with the most company reports); none if
+         most of those reports say the compound is not hazardous;
+      3. otherwise every other source's pictograms together.
         :return: The sorted pictogram codes; [] when PubChem classifies the compound
             with no pictograms; None when PubChem has no GHS classification at all
             (hazards unknown: check the supplier's SDS).
@@ -102,17 +110,52 @@ def ghs_pictograms(cid: int) -> list[str] | None:
                               params={"heading": "GHS Classification"}, timeout=TIMEOUT))
     if data is None:
         return None
-    found = set()
-    for info in _information(data["Record"]):
-        if info.get("Name") != "Pictogram(s)":
-            continue
-        for text in info.get("Value", {}).get("StringWithMarkup", []):
-            for markup in text.get("Markup", []):
-                # the icon's URL names the pictogram: .../images/ghs/GHS02.svg
-                match = re.search(r"(GHS\d\d)\.svg$", markup.get("URL", ""))
-                if match:
-                    found.add(match.group(1))
-    return sorted(found)
+    sources = _ghs_sources(data["Record"])
+
+    official = [s for s in sources.values() if s["source"].startswith(OFFICIAL_SOURCE)]
+    if official:
+        return sorted(set().union(*(s["pictograms"] for s in official)))
+
+    echa = [s for s in sources.values() if s["source"] == ECHA_SOURCE and s["reports"]]
+    if echa:
+        main = max(echa, key=lambda s: s["reports"])
+        if main["not_hazardous_percent"] >= 50:
+            return []
+        if main["pictograms"]:
+            return sorted(main["pictograms"])
+
+    return sorted(set().union(set(), *(s["pictograms"] for s in sources.values())))
+
+
+def _ghs_sources(record: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    """
+    PubChem's GHS classification, one entry per source (reference number):
+    {source name, pictograms, reports (ECHA's company report count, else 0),
+    not_hazardous_percent (from ECHA's "does not meet GHS hazard criteria for X%")}.
+    """
+    names = {r["ReferenceNumber"]: r.get("SourceName", "") for r in record.get("Reference", [])}
+    sources: dict[int, dict[str, Any]] = {}
+    for info in _information(record):
+        ref = info.get("ReferenceNumber")
+        source = sources.setdefault(ref, {"source": names.get(ref, ""), "pictograms": set(),
+                                          "reports": 0, "not_hazardous_percent": 0.0})
+        texts = info.get("Value", {}).get("StringWithMarkup", [])
+        if info.get("Name") == "Pictogram(s)":
+            for text in texts:
+                for markup in text.get("Markup", []):
+                    # the icon's URL names the pictogram: .../images/ghs/GHS02.svg
+                    match = re.search(r"(GHS\d\d)\.svg$", markup.get("URL", ""))
+                    if match:
+                        source["pictograms"].add(match.group(1))
+        elif info.get("Name") == "ECHA C&L Notifications Summary" and texts:
+            match = re.search(r"per (\d+) reports", texts[0].get("String", ""))
+            if match:
+                source["reports"] = int(match.group(1))
+        elif info.get("Name") == "Note" and texts:
+            match = re.search(r"does not meet GHS hazard criteria for ([\d.]+)%", texts[0].get("String", ""))
+            if match:
+                source["not_hazardous_percent"] = float(match.group(1))
+    return sources
 
 
 def _information(section: dict[str, Any]) -> Iterator[dict[str, Any]]:
