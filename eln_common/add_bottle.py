@@ -66,6 +66,23 @@ def bottle_fields(extra_fields: dict[str, Any], has_compounds: bool) -> dict[str
     return {name: field for name, field in extra_fields.items() if name not in moved}
 
 
+def compound_slots(extra_fields: dict[str, Any]) -> list[str] | None:
+    """
+    Which compounds a category's bottles link to, read from its template's fields:
+    a "Solvent" field means a solution (the dissolved chemical and the solvent); Mw/Mn
+    mean a polymer (no compound: same CAS, different batches); otherwise one chemical.
+        :return: The label of each compound to pick; None if the template has no
+            "State" field, i.e. it is not for bottles (e.g. Instrument).
+    """
+    if "State" not in extra_fields:
+        return None
+    if "Solvent" in extra_fields:
+        return ["Dissolved chemical", "Solvent"]
+    if "Mw" in extra_fields or "Mn" in extra_fields:
+        return []
+    return ["Chemical"]
+
+
 def clean_unit(unit: Any) -> str:
     """The unit as eLabFTW spells it ("µL" typed with the micro sign becomes "μL")."""
     unit = str(unit or "").strip().replace("µ", "μ")

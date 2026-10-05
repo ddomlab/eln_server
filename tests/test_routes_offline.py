@@ -363,7 +363,8 @@ class TestLookupLists:
 
     def test_compounds_list_is_trimmed_and_sorted(self, client, monkeypatch):
         fake_rm = SimpleNamespace(get_compounds=lambda: [
-            {"id": 72, "name": "acetone", "cas_number": "67-64-1", "molecular_formula": "C3H6O", "smiles": "CC(C)=O"},
+            {"id": 72, "name": "acetone", "cas_number": "67-64-1", "molecular_formula": "C3H6O", "smiles": "CC(C)=O",
+             "is_flammable": 1},
             {"id": 111, "name": "Chlorobenzene", "cas_number": "108-90-7", "molecular_formula": None},
             {"id": 196, "name": None, "cas_number": None, "molecular_formula": None},
         ])
@@ -371,9 +372,11 @@ class TestLookupLists:
         resp = client.get("/compounds_list")
         assert resp.status_code == 200
         assert resp.get_json() == [
-            {"id": 196, "name": "", "cas": "", "formula": ""},
-            {"id": 72, "name": "acetone", "cas": "67-64-1", "formula": "C3H6O"},
-            {"id": 111, "name": "Chlorobenzene", "cas": "108-90-7", "formula": ""},
+            {"id": 196, "name": "", "cas": "", "formula": "", "hazards": [], "peroxide_class": None},
+            {"id": 72, "name": "acetone", "cas": "67-64-1", "formula": "C3H6O",
+             "hazards": ["Flammable"], "peroxide_class": None},
+            {"id": 111, "name": "Chlorobenzene", "cas": "108-90-7", "formula": "",
+             "hazards": [], "peroxide_class": None},
         ]
 
     def test_storage_tree_keeps_hierarchy(self, client, monkeypatch):
@@ -389,7 +392,7 @@ class TestLookupLists:
             {"id": 5, "name": "Front hood", "parent_id": 4, "full_path": "Room 3057 > Front hood"},
         ]
 
-    @pytest.mark.parametrize("path", ["/compounds_list", "/storage_tree"])
+    @pytest.mark.parametrize("path", ["/compounds_list", "/storage_tree", "/bottle_form"])
     def test_lists_need_an_api_key(self, client, path):
         resp = client.get(path)
         assert resp.status_code == 401
@@ -1064,6 +1067,35 @@ class TestBottleTags:
 
     def test_no_compounds_no_tags(self):
         assert bottle_tags.tags_for([]) == []
+
+
+class TestBottleForm:
+    @pytest.mark.parametrize("names, slots", [
+        ({"State", "CAS"}, ["Chemical"]),
+        ({"State", "Solvent", "Solvent CAS"}, ["Dissolved chemical", "Solvent"]),
+        ({"State", "Mw", "Mn"}, []),
+        ({"Room"}, None),  # Instrument: not a bottle
+    ])
+    def test_compound_slots(self, names, slots):
+        assert add_bottle.compound_slots({n: {} for n in names}) == slots
+
+    def test_route_lists_bottle_categories_with_their_own_fields(self, client, monkeypatch):
+        instrument = {"id": 1, "title": "Instrument", "metadata": json.dumps({"extra_fields": {"Room": _field(1)}})}
+        templates = {1: instrument, 2: CHEMICAL_TEMPLATE, 3: POLYMER_TEMPLATE}
+        fake_rm = SimpleNamespace(get_items_types=lambda: [{"id": i, "title": t["title"]} for i, t in templates.items()],
+                                  get_items_type=lambda id: templates[id])
+        monkeypatch.setattr(interface, "rm", lambda: fake_rm)
+        resp = client.get("/bottle_form")
+        assert resp.status_code == 200
+        categories = resp.get_json()["categories"]
+        assert [(c["id"], c["compound_slots"]) for c in categories] == [(2, ["Chemical"])]  # polymer has no State
+        names = [f["name"] for f in categories[0]["fields"]]
+        assert names == ["CAS", "Received", "State", "Purity", "Lot number", "Manufacturer"]  # template order
+        assert resp.get_json()["units_by_state"]["Liquid"] == ["\u03bcL", "mL", "L"]
+
+    def test_page_is_served(self, client):
+        resp = client.get("/add_bottle_interface")
+        assert resp.status_code == 200 and b"add_bottle.js" in resp.data
 
 
 class TestCreateResourceRoute:

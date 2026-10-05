@@ -7,6 +7,7 @@ from requests import HTTPError
 
 import eln_common.add_bottle as add_bottle
 import eln_common.compound_import as compound_import
+import eln_common.bottle_tags as bottle_tags
 import eln_common.config as config
 import eln_common.pubchem as pubchem
 import eln_common.storage_places as storage_places
@@ -44,6 +45,11 @@ def eln_config():
 @interface_bp.route("/add_resource_interface")
 def add_resource_interface():
     return send_from_directory(current_app.static_folder, "add_resource.html")  # type: ignore
+
+
+@interface_bp.route("/add_bottle_interface")
+def add_bottle_interface():
+    return send_from_directory(current_app.static_folder, "add_bottle.html")  # type: ignore
 
 
 @interface_bp.route("/label_gen_interface")
@@ -85,8 +91,9 @@ def get_statuses():
 @interface_bp.route('/compounds_list', methods=['GET'])
 @cross_origin(origins="http://localhost:8000")
 def compounds_list():
-    """Existing compounds as [{id, name, cas, formula}], sorted by name, for the
-    add-resource compound dropdown."""
+    """Existing compounds as [{id, name, cas, formula, hazards, peroxide_class}], sorted
+    by name, for the add-bottle compound dropdown. hazards and peroxide_class are what
+    the bottle's tags will be (see bottle_tags)."""
     try:
         compounds = rm().get_compounds()
         listing = [
@@ -95,12 +102,46 @@ def compounds_list():
                 "name": c.get("name") or "",
                 "cas": c.get("cas_number") or "",
                 "formula": c.get("molecular_formula") or "",
+                "hazards": [tag for flag, tag in bottle_tags.HAZARD_TAGS.items() if c.get(flag)],
+                "peroxide_class": bottle_tags.peroxide_class(c),
             }
             for c in compounds
         ]
         return jsonify(sorted(listing, key=lambda c: c["name"].lower()))
     except ValueError as e:
         return jsonify({"status": "error", "error": str(e)}), 401
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 400
+
+
+@interface_bp.route('/bottle_form', methods=['GET'])
+@cross_origin(origins="http://localhost:8000")
+def bottle_form():
+    """What the add-bottle page needs to draw its form: each bottle category with the
+    compounds to pick (compound_slots) and the extra fields that stay on the bottle
+    (in template order), plus eLabFTW's units and the units offered per State."""
+    try:
+        rmn = rm()
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    try:
+        categories = []
+        for t in rmn.get_items_types():
+            metadata = json.loads(rmn.get_items_type(t["id"]).get("metadata") or "{}")
+            extra_fields = metadata.get("extra_fields", {})
+            slots = add_bottle.compound_slots(extra_fields)
+            if slots is None:
+                continue
+            fields = add_bottle.bottle_fields(extra_fields, bool(slots))
+            categories.append({
+                "id": t["id"],
+                "title": t["title"],
+                "compound_slots": slots,
+                "fields": [{"name": name, **field} for name, field in
+                           sorted(fields.items(), key=lambda kv: kv[1].get("position", 0))],
+            })
+        return jsonify({"categories": categories, "units": add_bottle.UNITS,
+                        "units_by_state": add_bottle.UNITS_BY_STATE})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 400
 
