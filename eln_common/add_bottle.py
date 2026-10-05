@@ -9,7 +9,7 @@ Only the facts about this one bottle (supplier, lot, purity, dates...) stay as
 extra fields.
 
 create_bottle() does it in order: create from the template -> title and fields ->
-link compounds -> put it in its place -> structure image. Once the bottle exists
+link compounds -> hazard and peroxide tags -> put it in its place -> structure image. Once the bottle exists
 it is never deleted: a later step that fails is reported back as a problem, so
 the user can finish it in eLabFTW.
 """
@@ -18,6 +18,7 @@ import json
 from typing import Any
 
 from automations.image_generator import generate_image
+from eln_common.bottle_tags import tags_for
 from eln_common.resourcemanage import Resource_Manager
 
 # eLabFTW's fixed list of storage units (μ is the Greek letter mu, U+03BC)
@@ -108,7 +109,7 @@ def check_request(rm: Resource_Manager, data: dict[str, Any]) -> dict[str, Any]:
 
     return {"category": category, "title": title.strip(), "compounds": compounds,
             "place_id": place_id, "amount": amount, "unit": unit, "fields": fields,
-            "metadata": metadata, "smiles": live_compounds[compounds[0]].get("smiles") if compounds else None}
+            "metadata": metadata, "compound_data": [live_compounds[c] for c in compounds]}
 
 
 def bottle_metadata(metadata: dict[str, Any], fields: dict[str, Any], has_compounds: bool) -> str:
@@ -126,7 +127,8 @@ def create_bottle(rm: Resource_Manager, data: dict[str, Any]) -> dict[str, Any]:
          "storage": {"place_id": 6, "amount": 500, "unit": "mL"},
          "fields": {"Manufacturer": "Sigma-Aldrich", "Lot number": "SHBM1234"}}
         :raises InvalidBottle: nothing was created.
-        :return: {"id": new bottle id, "problems": [steps that failed after it was created]}
+        :return: {"id": new bottle id, "tags": tags added, "problems": [steps that failed
+            after it was created]}
     """
     request = check_request(rm, data)
     has_compounds = bool(request["compounds"])
@@ -148,15 +150,24 @@ def create_bottle(rm: Resource_Manager, data: dict[str, Any]) -> dict[str, Any]:
         except Exception as e:
             problems.append(f"Linking compound #{compound_id} failed: {e}")
 
+    tags = []
+    for tag in tags_for(request["compound_data"]):
+        try:
+            rm.add_tag(item_id, tag)
+            tags.append(tag)
+        except Exception as e:
+            problems.append(f"Adding the tag '{tag}' failed: {e}")
+
     try:
         rm.add_to_storage(item_id, request["place_id"], request["amount"], request["unit"])
     except Exception as e:
         problems.append(f"Putting it in its storage place failed: {e}")
 
-    if request["smiles"]:
+    smiles = request["compound_data"][0].get("smiles") if request["compound_data"] else None
+    if smiles:
         try:
-            rm.upload_file(item_id, generate_image(request["smiles"]))
+            rm.upload_file(item_id, generate_image(smiles))
         except Exception as e:
             problems.append(f"Adding the structure image failed: {e}")
 
-    return {"id": item_id, "problems": problems}
+    return {"id": item_id, "tags": tags, "problems": problems}

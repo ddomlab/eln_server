@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import eln_common.add_bottle as add_bottle
+import eln_common.bottle_tags as bottle_tags
 import eln_common.compound_import as compound_import
 import eln_common.pubchem as pubchem
 import eln_common.storage_places as storage_places
@@ -832,7 +833,7 @@ class FakeBottleRM:
         return templates[id]
 
     def get_compounds(self):
-        return [{"id": 77, "name": "Tetrahydrofuran", "smiles": "C1CCOC1"}, {"id": 72, "name": "Acetone"}]
+        return [THF_COMPOUND, {"id": 72, "name": "Acetone", "cas_number": "67-64-1", "is_flammable": 1}]
 
     def get_storage_units(self):
         return STORAGE
@@ -853,7 +854,14 @@ class FakeBottleRM:
     def upload_file(self, id, path):
         self._record("upload", id, path)
 
+    def add_tag(self, item_id, tag):
+        self._record("tag", item_id, tag)
 
+
+THF_COMPOUND = {"id": 77, "name": "Tetrahydrofuran", "smiles": "C1CCOC1", "cas_number": "109-99-9",
+                "inchi_key": "WYURNTSHIVDZCO-UHFFFAOYSA-N", "is_flammable": 1, "is_hazardous2health": 1,
+                "is_serious_health_hazard": 1, "is_toxic": 0}
+THF_TAGS = ["Flammable", "Health hazard", "Serious health hazard", "Peroxide former: B"]
 THF_BOTTLE = {"category": 2, "title": " Tetrahydrofuran ", "compounds": [77],
               "storage": {"place_id": 6, "amount": 500, "unit": "mL"},
               "fields": {"Manufacturer": "Sigma-Aldrich", "Lot number": "SHBM1234", "Purity": 99.9,
@@ -868,12 +876,13 @@ def fake_image(monkeypatch):
 class TestAddBottle:
     def test_creates_links_places_and_draws_in_order(self, fake_image):
         rm = FakeBottleRM()
-        assert add_bottle.create_bottle(rm, THF_BOTTLE) == {"id": 640, "problems": []}
-        assert [c[0] for c in rm.calls] == ["create", "change", "link", "storage", "upload"]
+        assert add_bottle.create_bottle(rm, THF_BOTTLE) == {"id": 640, "tags": THF_TAGS, "problems": []}
+        assert [c[0] for c in rm.calls] == ["create", "change", "link"] + ["tag"] * 4 + ["storage", "upload"]
         assert rm.calls[0] == ("create", 2)
         assert rm.calls[2] == ("link", 640, 77)
-        assert rm.calls[3] == ("storage", 640, 6, 500, "mL")
-        assert rm.calls[4] == ("upload", 640, "/tmp/C1CCOC1.png")
+        assert [c[2] for c in rm.calls if c[0] == "tag"] == THF_TAGS
+        assert rm.calls[-2] == ("storage", 640, 6, 500, "mL")
+        assert rm.calls[-1] == ("upload", 640, "/tmp/C1CCOC1.png")
 
     def test_bottle_keeps_only_its_own_fields(self, fake_image):
         rm = FakeBottleRM()
@@ -892,12 +901,12 @@ class TestAddBottle:
                                       "storage": {"place_id": 21, "amount": 2, "unit": "g"}})
         metadata = json.loads(rm.calls[1][2]["metadata"])
         assert sorted(metadata["extra_fields"]) == ["Full name", "Mw", "SMILES"]
-        assert [c[0] for c in rm.calls] == ["create", "change", "storage"]  # no link, no image
+        assert [c[0] for c in rm.calls] == ["create", "change", "storage"]  # no link, tags or image
 
     def test_micro_sign_becomes_greek_mu(self, fake_image):
         rm = FakeBottleRM()
         add_bottle.create_bottle(rm, {**THF_BOTTLE, "storage": {"place_id": 6, "amount": 250, "unit": "\u00b5L"}})
-        assert rm.calls[3][-1] == "\u03bcL"
+        assert [c for c in rm.calls if c[0] == "storage"][0][-1] == "\u03bcL"
 
     @pytest.mark.parametrize("change, message", [
         ({"category": None}, "Choose a category"),
@@ -921,16 +930,47 @@ class TestAddBottle:
         assert rm.calls == []
 
     def test_later_failures_are_reported_and_the_rest_still_runs(self, fake_image):
-        rm = FakeBottleRM(fail={"link", "storage"})
+        rm = FakeBottleRM(fail={"link", "tag", "storage"})
         result = add_bottle.create_bottle(rm, THF_BOTTLE)
-        assert result["id"] == 640
+        assert result["id"] == 640 and result["tags"] == []
         assert [p.split(" failed")[0] for p in result["problems"]] == [
-            "Linking compound #77", "Putting it in its storage place"]
-        assert [c[0] for c in rm.calls] == ["create", "change", "link", "storage", "upload"]
+            "Linking compound #77"] + [f"Adding the tag '{t}'" for t in THF_TAGS] + [
+            "Putting it in its storage place"]
+        assert [c[0] for c in rm.calls][-2:] == ["storage", "upload"]
+
+    def test_solution_gets_tags_of_both_compounds_once(self, fake_image):
+        rm = FakeBottleRM()
+        result = add_bottle.create_bottle(rm, {**THF_BOTTLE, "compounds": [72, 77]})
+        assert result["tags"] == THF_TAGS  # Flammable from both, listed once
+        assert [c for c in rm.calls if c[0] == "link"] == [("link", 640, 72), ("link", 640, 77)]
 
     def test_units_offered_per_state_are_elabftw_units(self):
         for units in add_bottle.UNITS_BY_STATE.values():
             assert set(units) <= set(add_bottle.UNITS)
+
+
+class TestBottleTags:
+    """Hazard tags from the compound's flags; peroxide class from the real EPA lists."""
+
+    def test_all_four_lists_are_read(self):
+        assert set(bottle_tags.peroxide_classes().values()) == {"A", "B", "C", "D"}
+
+    @pytest.mark.parametrize("compound, expected", [
+        ({"cas_number": "109-99-9"}, "B"),                                   # THF
+        ({"cas_number": "60-29-7"}, "B"),                                    # diethyl ether
+        ({"cas_number": "80-62-6"}, "C"),                                    # methyl methacrylate
+        ({"cas_number": "0-00-0", "inchi_key": "WYURNTSHIVDZCO-UHFFFAOYSA-N"}, "B"),  # THF by structure
+        ({"cas_number": "67-64-1"}, None),                                   # acetone
+        ({}, None),
+    ])
+    def test_peroxide_class(self, compound, expected):
+        assert bottle_tags.peroxide_class(compound) == expected
+
+    def test_tags_for_thf(self):
+        assert bottle_tags.tags_for([THF_COMPOUND]) == THF_TAGS
+
+    def test_no_compounds_no_tags(self):
+        assert bottle_tags.tags_for([]) == []
 
 
 class TestCreateResourceRoute:
@@ -939,6 +979,7 @@ class TestCreateResourceRoute:
         resp = client.post("/resources", json=THF_BOTTLE)
         assert resp.status_code == 201
         assert resp.get_json()["id"] == 640 and resp.get_json()["problems"] == []
+        assert resp.get_json()["tags"] == THF_TAGS
         assert resp.get_json()["url"].endswith("640")
 
     def test_bad_request_is_400(self, client, monkeypatch):

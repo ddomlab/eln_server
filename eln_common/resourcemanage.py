@@ -214,8 +214,7 @@ class Resource_Manager:
         Adds a tag to an item in the ELN with the given item ID and tag. Take care to use correct capitalization/whitespace
             :param int item_id: The ID of the item to be tagged.
             :param str tag: The tag to be added to the item."""
-        url = config.URL + "/items/" + str(item_id) + "/tags/"
-        requests.post(url, headers=self.header, json={"tag": tag})
+        self.post_url(f"/items/{item_id}/tags", json={"tag": tag}).raise_for_status()
 
     def delete_upload(
         self, id:int, upload_id:int, resource_type:str="items"
