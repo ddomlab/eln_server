@@ -48,12 +48,6 @@ class TestReads:
         assert item["id"] == TEST_ITEM_ID
         assert item["title"]
 
-    def test_get_locations(self, client, auth_headers):
-        resp = client.get("/get_locations", headers=auth_headers)
-        assert resp.status_code == 200
-        locations = resp.get_json()
-        assert isinstance(locations, list)
-
     def test_categories_lists_team_categories(self, client, auth_headers):
         resp = client.get("/categories", headers=auth_headers)
         assert resp.status_code == 200
@@ -118,20 +112,20 @@ class TestMutations:
         assert resp.status_code == 400
         assert "already marked" in resp.get_json()["error"]
 
-    def test_change_location(self, client, auth_headers, live_rm, restore_item):
-        meta = json.loads(restore_item["metadata"])
-        if "Location" not in meta.get("extra_fields", {}):
-            pytest.skip(f"Item {TEST_ITEM_ID} has no 'Location' extra field")
-
-        resp = client.post(
-            "/change_location",
-            json={"id": [TEST_ITEM_ID], "location": "pytest test location"},
-            headers=auth_headers,
-        )
-        assert resp.status_code == 200
-
-        updated = json.loads(get_item_raw(live_rm)["metadata"])
-        assert updated["extra_fields"]["Location"]["value"] == "pytest test location"
+    def test_move_to_storage_and_back(self, client, auth_headers, live_rm):
+        containers = get_item_raw(live_rm).get("containers") or []
+        if len(containers) != 1:
+            pytest.skip(f"Item {TEST_ITEM_ID} needs exactly one storage entry")
+        start = containers[0]["storage_id"]
+        other = next(u["id"] for u in live_rm.get_storage_units()
+                     if u.get("parent_id") is not None and u["id"] != start)
+        try:
+            resp = client.post("/move_to_storage", json={"id": [TEST_ITEM_ID], "storage_id": other},
+                               headers=auth_headers)
+            assert resp.status_code == 200 and resp.get_json()["moved"] == [TEST_ITEM_ID]
+            assert get_item_raw(live_rm)["containers"][0]["storage_id"] == other
+        finally:
+            live_rm.move_container(TEST_ITEM_ID, containers[0]["id"], start)
 
     def test_mark_empty(self, client, auth_headers, live_rm, restore_item):
         resp = client.post("/mark_empty", json={"id": [TEST_ITEM_ID]}, headers=auth_headers)

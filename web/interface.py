@@ -7,6 +7,7 @@ from flask_cors import cross_origin
 from requests import HTTPError
 
 import eln_common.add_bottle as add_bottle
+import eln_common.bottle_actions as bottle_actions
 import eln_common.compound_import as compound_import
 import eln_common.bottle_tags as bottle_tags
 import eln_common.config as config
@@ -367,8 +368,8 @@ def create_label():
     if qr_type == "Resource":
         qr_content = config.item_web_url(qr_content)
     elif qr_type == "Location":
-        # the registry scanner recognizes "LOCATION=<name>" codes
-        qr_content = "LOCATION=" + (qr_content or "")
+        # a storage place's id; scanning it on the scanner page moves the scanned bottles there
+        qr_content = f"STORAGE={qr_content or ''}"
     if icon == "QR Code":
         icon = None
     if icon == "None":
@@ -450,27 +451,44 @@ def mark_open():
     return "Success", 200
 
 
-@interface_bp.route('/change_location', methods=['POST'])
-@cross_origin(origins="http://localhost:8000")
-def change_location():
-    data = request.get_json()
+def _id_list(data: dict) -> list[int]:
+    """The resource ids in a scanner request {id: [...]}.
+        :raises ValueError: with a message for a 400 answer."""
     ids = data.get('id', [])
-    if len(ids) == 0:
-        return jsonify({"error": "No IDs provided"}), 400
-    rmn = rm()
     if not isinstance(ids, list):
-        return jsonify({"error": "Expected a list of IDs"}), 400
-    for id in ids:
-        body = rmn.get_item(id)
-        metadata = json.loads(body["metadata"] or "{}")
-        location = metadata.get("extra_fields", {}).get("Location")
-        if location is None:
-            return jsonify({"error": f"Item {id} has no 'Location' extra field. "
-                            "Its category's template must define an extra field named "
-                            "'Location' (exact spelling) before its location can be set."}), 400
-        location["value"] = data.get('location', "")
-        rmn.change_item(id, {"metadata": json.dumps(metadata), "status": config.setting("status_open", 4)})
-    return "Success", 200
+        raise ValueError("Expected a list of IDs")
+    if len(ids) == 0:
+        raise ValueError("No IDs provided")
+    try:
+        return [int(x) for x in ids]
+    except (TypeError, ValueError):
+        raise ValueError("IDs must be numbers")
+
+
+@interface_bp.route('/move_to_storage', methods=['POST'])
+@cross_origin(origins="http://localhost:8000")
+def move_to_storage():
+    """Moves the scanned bottles to a storage place: {id: [ids], storage_id}. The scanner
+    sends this when a place's QR code (STORAGE=<id>) is scanned. 200 with {moved, place,
+    problems}; problems lists bottles that could not be moved and why."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        ids = _id_list(data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    storage_id = data.get('storage_id')
+    if not isinstance(storage_id, int) or isinstance(storage_id, bool):
+        return jsonify({"error": "Scan a storage place's QR code (storage_id)"}), 400
+    try:
+        rmn = rm()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+    try:
+        return jsonify(bottle_actions.move_bottles(rmn, ids, storage_id))
+    except bottle_actions.UnknownPlace as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @interface_bp.route('/mark_empty', methods=['POST'])
@@ -516,28 +534,3 @@ def create_resource():
     for bottle in result["bottles"]:
         bottle["url"] = config.item_web_url(bottle["id"])
     return jsonify(result), 201
-
-
-@interface_bp.route('/get_locations', methods=['GET'])
-@cross_origin(origins="http://localhost:8000")
-def get_locations():
-    try:
-        rmn = rm()
-        types = rmn.get_items_types()
-        locations = []
-        for t in types:
-            if "metadata" not in t:
-                # eLabFTW >= 5.6 omits metadata from the items_types listing
-                t = rmn.get_items_type(t["id"])
-            try:
-                locs = json.loads(t["metadata"] or "{}")["extra_fields"]["Location"]["options"]
-            except KeyError:
-                locs = []
-            # Add only unique locations
-            for loc in locs:
-                if loc not in locations:
-                    locations.append(loc)
-        return jsonify(locations)
-    except Exception as e:
-        print("Error getting locations:", e)
-        return jsonify({"status": "error", "error": str(e)}), 400

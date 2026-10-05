@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import eln_common.add_bottle as add_bottle
+import eln_common.bottle_actions as bottle_actions
 import eln_common.bottle_tags as bottle_tags
 import eln_common.compound_import as compound_import
 import eln_common.pubchem as pubchem
@@ -93,16 +94,12 @@ class TestInputValidation:
     """Routes that validate the body before ever touching the eLN."""
 
     @pytest.mark.parametrize(
-        "route", ["/print", "/mark_open", "/mark_empty", "/change_location", "/associate"]
+        "route", ["/print", "/mark_open", "/mark_empty", "/move_to_storage", "/associate"]
     )
     def test_empty_id_list_rejected(self, client, route):
         resp = client.post(route, json={"id": []})
         assert resp.status_code == 400
         assert "error" in resp.get_json()
-
-    def test_get_locations_without_key_errors(self, client):
-        resp = client.get("/get_locations")
-        assert resp.status_code == 400
 
 class TestCasValidation:
     @pytest.mark.parametrize("cas", ["7732-18-5", "50-00-0", "1234567-89-1"])
@@ -1098,6 +1095,65 @@ class TestCreateResourceRoute:
 
     def test_needs_an_api_key(self, client):
         assert client.post("/resources", json=THF_BOTTLE).status_code == 401
+
+
+class FakeScannerRM:
+    """Stand-in for the calls the scanner actions make; bottles map id -> containers."""
+
+    def __init__(self, bottles, fail_move=()):
+        self.bottles = bottles
+        self.fail_move = set(fail_move)
+        self.moves = []
+
+    def get_storage_units(self):
+        return STORAGE
+
+    def get_item(self, id):
+        if id not in self.bottles:
+            raise RuntimeError("404 Not Found")
+        return {"id": id, "containers": self.bottles[id]}
+
+    def move_container(self, item_id, container_id, storage_id):
+        if item_id in self.fail_move:
+            raise RuntimeError("403 Forbidden")
+        self.moves.append((item_id, container_id, storage_id))
+
+
+class TestMoveBottles:
+    def test_moves_each_bottles_storage_entry(self):
+        rm = FakeScannerRM({624: [{"id": 234, "storage_id": 7}], 625: [{"id": 235, "storage_id": 7}]})
+        result = bottle_actions.move_bottles(rm, [624, 625], 6)
+        assert rm.moves == [(624, 234, 6), (625, 235, 6)]  # the entry's own id, then the place's
+        assert result == {"moved": [624, 625], "place": "Room 3057 > Front hood > Flammable cabinet",
+                          "problems": []}
+
+    def test_bottles_without_one_place_are_reported_not_guessed(self):
+        rm = FakeScannerRM({1: [], 2: [{"id": 8}, {"id": 9}], 3: [{"id": 10}]}, fail_move={3})
+        result = bottle_actions.move_bottles(rm, [1, 2, 3, 4], 6)
+        assert result["moved"] == [] and rm.moves == []
+        assert [p.split(" ")[0] for p in result["problems"]] == ["#1", "#2", "#3:", "#4:"]
+        assert "no place yet" in result["problems"][0] and "in 2 places" in result["problems"][1]
+
+    def test_unknown_place_moves_nothing(self):
+        rm = FakeScannerRM({624: [{"id": 234}]})
+        with pytest.raises(bottle_actions.UnknownPlace):
+            bottle_actions.move_bottles(rm, [624], 999)
+        assert rm.moves == []
+
+    def test_route(self, client, monkeypatch):
+        monkeypatch.setattr(interface, "rm", lambda: FakeScannerRM({624: [{"id": 234}]}))
+        resp = client.post("/move_to_storage", json={"id": ["624"], "storage_id": 6})
+        assert resp.status_code == 200 and resp.get_json()["moved"] == [624]
+        assert client.post("/move_to_storage", json={"id": [624], "storage_id": 999}).status_code == 404
+
+    @pytest.mark.parametrize("body", [{"id": [624]}, {"id": [624], "storage_id": "6"},
+                                      {"id": ["x"], "storage_id": 6}, {"id": 624, "storage_id": 6}])
+    def test_route_bad_input_is_400(self, client, body):
+        assert client.post("/move_to_storage", json=body).status_code == 400
+
+    def test_old_location_routes_are_gone(self, client):
+        assert client.post("/change_location", json={"id": [1], "location": "x"}).status_code == 404
+        assert client.get("/get_locations").status_code == 404
 
 
 class TestCreateItemFromTemplate:

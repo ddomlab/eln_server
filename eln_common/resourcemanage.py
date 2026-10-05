@@ -169,6 +169,15 @@ class Resource_Manager:
         self.post_url(f"/items/{item_id}/containers/{storage_id}",
                       json={"qty_stored": amount, "qty_unit": unit}).raise_for_status()
 
+    def move_container(self, item_id: int, container_id: int, storage_id: int) -> None:
+        """
+        Moves one of an item's storage entries to another storage place; eLabFTW records
+        the move in the item's history. Note the two different ids: container_id is the
+        entry's own id (item["containers"][i]["id"]), storage_id the destination place's.
+        """
+        self.patch_url(f"/items/{item_id}/containers/{container_id}",
+                       json={"storage_id": storage_id}).raise_for_status()
+
     def create_storage_unit(self, name: str, parent_id: int) -> int:
         """
         Creates a storage place inside another one. Prefer storage_places.create_place_safely(),
