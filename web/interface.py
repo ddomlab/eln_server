@@ -134,11 +134,12 @@ def compounds_pubchem():
         compounds = rmn.get_all_compounds()
         candidates = []
         for pc in found:
-            match = compound_import.find_existing(pc, cas or None, compounds)
+            clash = compound_import.find_clash(pc, cas or None, compounds)
             candidates.append({
                 "pubchem": _pubchem_preview(pc),
-                "existing": compound_import.summary(match[0]) if match else None,
-                "reason": match[1] if match else "",
+                "existing": compound_import.summary(clash.existing) if clash else None,
+                "reason": clash.reason if clash else "",
+                "can_restore": clash.can_restore if clash else False,
             })
         return jsonify({"candidates": candidates})
     except Exception as e:
@@ -150,7 +151,8 @@ def compounds_pubchem():
 def create_compound():
     """Creates a compound from PubChem: {cid, cas}. The details and hazard pictograms
     are fetched again here from PubChem rather than trusted from the page. 409 with
-    the existing compound if the ELN already has it (even deleted)."""
+    the existing compound if the ELN already has it; when that is a deleted compound
+    (can_restore), sending {cid, cas, restore: <its id>} restores and refreshes it (200)."""
     data = request.get_json(force=True, silent=True) or {}
     try:
         cid = int(data.get('cid'))
@@ -159,6 +161,9 @@ def create_compound():
     cas = (data.get('cas') or '').strip() or None
     if cas and not check_if_cas(cas):
         return jsonify({"status": "error", "error": f"'{cas}' is not a valid CAS number"}), 400
+    restore_id = data.get('restore')
+    if restore_id is not None and (not isinstance(restore_id, int) or isinstance(restore_id, bool)):
+        return jsonify({"status": "error", "error": "restore must be a compound id"}), 400
     try:
         rmn = rm()
     except ValueError as e:
@@ -167,16 +172,18 @@ def create_compound():
         found = pubchem.fetch(cid)
         if not found:
             return jsonify({"status": "error", "error": f"PubChem has no compound {cid}"}), 404
-        created = compound_import.create_compound_safely(rmn, found, cas)
+        saved = compound_import.create_compound_safely(rmn, found, cas, restore_id)
     except compound_import.CompoundClash as e:
         return jsonify({"status": "error", "error": f"Already in the ELN ({e.reason})",
-                        "existing": compound_import.summary(e.existing)}), 409
+                        "existing": compound_import.summary(e.existing),
+                        "can_restore": e.can_restore}), 409
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
-    result = compound_import.summary(created)
+    result = compound_import.summary(saved)
+    result["restored"] = saved["id"] == restore_id
     # None: PubChem has no hazard classification, so the page asks the user to check the SDS
     result["pictograms"] = found["pictograms"]
-    return jsonify(result), 201
+    return jsonify(result), 200 if result["restored"] else 201
 
 
 @interface_bp.route('/storage_tree', methods=['GET'])

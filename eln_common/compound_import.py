@@ -37,9 +37,11 @@ CREATE_FIELDS = ["name", "cas_number", "pubchem_cid", "inchi", "inchi_key", "smi
 class CompoundClash(Exception):
     """The compound already exists in the ELN (possibly deleted)."""
 
-    def __init__(self, existing: dict[str, Any], reason: str):
+    def __init__(self, existing: dict[str, Any], reason: str, can_restore: bool = False):
         self.existing = existing
         self.reason = reason
+        # True when the only match is one deleted compound, which can be restored instead
+        self.can_restore = can_restore
         super().__init__(reason)
 
 
@@ -54,25 +56,33 @@ def summary(compound: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def find_existing(pubchem: dict[str, Any], cas: str | None,
-                  compounds: list[dict[str, Any]]) -> tuple[dict[str, Any], str] | None:
+def find_clash(pubchem: dict[str, Any], cas: str | None,
+               compounds: list[dict[str, Any]]) -> CompoundClash | None:
     """
-    The ELN compound (any state) that a PubChem result would collide with, and why.
-    Checks the unique fields that would be sent: PubChem ID, InChIKey, and the CAS
-    actually saved (the user's, else PubChem's; see build_compound_body).
+    Why a PubChem result can't simply be created: an ELN compound (any state) shares
+    its PubChem ID, InChIKey, or the CAS actually saved (the user's, else PubChem's;
+    see build_compound_body). A live match is reported before a deleted one, since
+    creating would overwrite it and the bottles linked to it.
     """
     keys = [
         ("pubchem_cid", pubchem.get("pubchem_cid"), "same PubChem ID"),
         ("inchi_key", pubchem.get("inchi_key"), "same structure (InChIKey)"),
         ("cas_number", cas or pubchem.get("cas_number"), "same CAS number"),
     ]
+    matches: dict[int, tuple[dict[str, Any], str]] = {}
     for field, value, reason in keys:
         if not value:
             continue
         for compound in compounds:
             if compound.get(field) is not None and str(compound.get(field)) == str(value):
-                return compound, reason
-    return None
+                matches.setdefault(compound["id"], (compound, reason))
+    if not matches:
+        return None
+    live = [m for m in matches.values() if not summary(m[0])["deleted"]]
+    if live:
+        return CompoundClash(*live[0])
+    first = next(iter(matches.values()))
+    return CompoundClash(*first, can_restore=len(matches) == 1)
 
 
 def build_compound_body(pubchem: dict[str, Any], cas: str | None) -> dict[str, Any]:
@@ -90,18 +100,21 @@ def build_compound_body(pubchem: dict[str, Any], cas: str | None) -> dict[str, A
 
 
 def create_compound_safely(rm: Resource_Manager, pubchem: dict[str, Any],
-                           cas: str | None) -> dict[str, Any]:
+                           cas: str | None, restore_id: int | None = None) -> dict[str, Any]:
     """
     Creates the compound described by a PubChem result, unless it would touch an
-    existing one.
+    existing one. If the only match is a deleted compound and the user agreed to
+    restore it (restore_id), that compound is restored and refreshed instead.
         :raises CompoundClash: the ELN already has this compound (maybe deleted).
         :raises RuntimeError: eLabFTW returned an existing compound's id anyway.
-        :return: The new compound as eLabFTW stores it.
+        :return: The new or restored compound as eLabFTW stores it.
     """
     compounds = rm.get_all_compounds()
-    clash = find_existing(pubchem, cas, compounds)
+    clash = find_clash(pubchem, cas, compounds)
     if clash:
-        raise CompoundClash(*clash)
+        if clash.can_restore and clash.existing["id"] == restore_id:
+            return restore_compound(rm, restore_id, pubchem, cas)
+        raise clash
 
     known_ids = {c["id"] for c in compounds}
     new_id = rm.create_compound(build_compound_body(pubchem, cas))
@@ -113,3 +126,24 @@ def create_compound_safely(rm: Resource_Manager, pubchem: dict[str, Any],
     if pubchem.get("molecular_weight"):
         rm.patch_compound(new_id, {"molecular_weight": pubchem["molecular_weight"]})
     return rm.get_compound(new_id)
+
+
+def restore_compound(rm: Resource_Manager, compound_id: int, pubchem: dict[str, Any],
+                     cas: str | None) -> dict[str, Any]:
+    """
+    Brings a deleted compound back with fresh details from PubChem and the user's CAS.
+    (eLabFTW would do this silently on create; here it happens only when asked.)
+        :return: The restored compound as eLabFTW stores it.
+    """
+    body: dict[str, Any] = {k: v for k, v in build_compound_body(pubchem, cas).items()
+                            if not k.startswith("is_")}
+    if pubchem.get("pictograms") is not None:
+        # unlike create, eLabFTW's PATCH counts a flag as set only when it is "on"
+        for pictogram, flag in GHS_FLAGS.items():
+            body[flag] = "on" if pictogram in pubchem["pictograms"] else "off"
+    if pubchem.get("molecular_weight"):
+        body["molecular_weight"] = pubchem["molecular_weight"]
+    # last, so the compound stays deleted if eLabFTW refuses one of the changes above
+    body["state"] = 1
+    rm.patch_compound(compound_id, body)
+    return rm.get_compound(compound_id)

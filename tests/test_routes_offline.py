@@ -411,7 +411,8 @@ class FakeCompoundRM:
         self.patched.append((id, body))
 
     def get_compound(self, id):
-        body = self.created[-1]
+        patches = [b for i, b in self.patched if i == id and "name" in b]
+        body = patches[-1] if patches else self.created[-1]
         return {"id": id, "name": body.get("name"), "cas_number": body.get("cas_number"),
                 "molecular_formula": body.get("molecular_formula"), "state": 1}
 
@@ -423,6 +424,10 @@ MANNITOL = {"pubchem_cid": 6251, "cas_number": "87-78-5", "name": "Mannitol",
 THF = {"pubchem_cid": 8028, "cas_number": "109-99-9", "name": "Tetrahydrofuran",
        "inchi_key": "WYURNTSHIVDZCO-UHFFFAOYSA-N", "molecular_formula": "C4H8O",
        "molecular_weight": 72.11, "smiles": "C1CCOC1", "pictograms": ["GHS02", "GHS07", "GHS08"]}
+PHENYLBORONIC = {"pubchem_cid": 66827, "cas_number": "98-80-6", "name": "Phenylboronic Acid",
+                 "inchi_key": "HXITXNWTGFUOAU-UHFFFAOYSA-N", "molecular_formula": "C6H7BO2",
+                 "molecular_weight": 121.93, "pictograms": ["GHS07"]}
+PHENYLBORONIC_8_DELETED = {"id": 8, "name": "Phenylboronic acid", "cas_number": "98-80-6", "state": 3}
 HEXITOL_80 = {"id": 80, "name": "Hexitol", "cas_number": "87-78-5", "pubchem_cid": 453,
               "inchi_key": "FBPFZTCFMRRESA-UHFFFAOYSA-N", "state": 1}
 
@@ -464,15 +469,50 @@ class TestCompoundImport:
         assert e.value.existing["id"] == 80 and "PubChem ID" in e.value.reason
         assert rm.created == []
 
-    def test_deleted_compound_with_same_cas_is_refused(self):
+    def test_deleted_compound_with_same_cas_is_refused_but_can_be_restored(self):
         # like #8 Phenylboronic acid: deleted, but it still holds its CAS
-        deleted = {"id": 8, "name": "Phenylboronic acid", "cas_number": "98-80-6", "state": 3}
-        pc = {"pubchem_cid": 66827, "cas_number": "98-80-6", "name": "Phenylboronic Acid",
-              "inchi_key": "HXIT-X"}
-        rm = FakeCompoundRM([deleted])
+        rm = FakeCompoundRM([PHENYLBORONIC_8_DELETED])
         with pytest.raises(compound_import.CompoundClash) as e:
-            compound_import.create_compound_safely(rm, pc, "98-80-6")
+            compound_import.create_compound_safely(rm, PHENYLBORONIC, "98-80-6")
         assert e.value.existing["id"] == 8 and compound_import.summary(e.value.existing)["deleted"]
+        assert e.value.can_restore and rm.created == [] and rm.patched == []
+
+    def test_restore_refreshes_the_deleted_compound(self):
+        rm = FakeCompoundRM([PHENYLBORONIC_8_DELETED])
+        restored = compound_import.create_compound_safely(rm, PHENYLBORONIC, "98-80-6", restore_id=8)
+        assert restored["id"] == 8 and rm.created == []
+        [(patched_id, body)] = rm.patched
+        assert patched_id == 8
+        assert body["name"] == "Phenylboronic Acid" and body["cas_number"] == "98-80-6"
+        assert body["molecular_weight"] == 121.93
+        # every hazard flag is written, as "on"/"off" (what eLabFTW's PATCH reads)
+        assert body["is_hazardous2health"] == "on" and body["is_flammable"] == "off"
+        assert len([k for k in body if k.startswith("is_")]) == 9
+        assert list(body)[-1] == "state" and body["state"] == 1
+
+    def test_restore_keeps_flags_when_hazards_are_unknown(self):
+        rm = FakeCompoundRM([PHENYLBORONIC_8_DELETED])
+        compound_import.create_compound_safely(rm, {**PHENYLBORONIC, "pictograms": None}, "98-80-6", restore_id=8)
+        assert not any(k.startswith("is_") for k in rm.patched[0][1])
+
+    def test_restore_needs_the_matching_id(self):
+        rm = FakeCompoundRM([PHENYLBORONIC_8_DELETED])
+        with pytest.raises(compound_import.CompoundClash):
+            compound_import.create_compound_safely(rm, PHENYLBORONIC, "98-80-6", restore_id=9)
+        assert rm.patched == []
+
+    def test_live_match_wins_over_deleted_and_cannot_be_restored(self):
+        live = {"id": 30, "name": "Phenylboronic acid (2)", "pubchem_cid": 66827, "state": 1}
+        rm = FakeCompoundRM([PHENYLBORONIC_8_DELETED, live])
+        with pytest.raises(compound_import.CompoundClash) as e:
+            compound_import.create_compound_safely(rm, PHENYLBORONIC, "98-80-6", restore_id=8)
+        assert e.value.existing["id"] == 30 and not e.value.can_restore
+        assert rm.patched == []
+
+    def test_two_deleted_matches_cannot_be_restored(self):
+        other = {"id": 9, "name": "old copy", "pubchem_cid": 66827, "state": 3}
+        clash = compound_import.find_clash(PHENYLBORONIC, "98-80-6", [PHENYLBORONIC_8_DELETED, other])
+        assert clash and not clash.can_restore
 
     def test_existing_id_returned_by_elabftw_stops(self):
         # if eLabFTW still overwrote something, never treat that compound as new
@@ -586,6 +626,7 @@ class TestCompoundRoutes:
         candidate = resp.get_json()["candidates"][0]
         assert candidate["pubchem"]["name"] == "Acetone" and candidate["pubchem"]["cid"] == 180
         assert candidate["existing"]["id"] == 72 and candidate["reason"] == "same PubChem ID"
+        assert candidate["can_restore"] is False
 
     def test_preview_not_in_pubchem_is_404(self, client, monkeypatch):
         monkeypatch.setattr(interface, "rm", lambda: FakeCompoundRM([]))
@@ -601,8 +642,8 @@ class TestCompoundRoutes:
         monkeypatch.setattr(pubchem, "fetch", lambda cid: MANNITOL)
         resp = client.post("/compounds", json={"cid": 6251, "cas": "69-65-8"})
         assert resp.status_code == 201
-        assert resp.get_json() == {"id": 126, "name": "Mannitol", "cas": "69-65-8",
-                                   "formula": "C6H14O6", "deleted": False, "pictograms": []}
+        assert resp.get_json() == {"id": 126, "name": "Mannitol", "cas": "69-65-8", "formula": "C6H14O6",
+                                   "deleted": False, "restored": False, "pictograms": []}
 
     def test_create_reports_pictograms(self, client, monkeypatch):
         monkeypatch.setattr(interface, "rm", lambda: FakeCompoundRM([], create_returns=127))
@@ -622,14 +663,25 @@ class TestCompoundRoutes:
         monkeypatch.setattr(pubchem, "fetch", lambda cid: MANNITOL)
         resp = client.post("/compounds", json={"cid": 6251, "cas": "69-65-8"})
         assert resp.status_code == 409
-        assert resp.get_json()["existing"]["id"] == 80
+        assert resp.get_json()["existing"]["id"] == 80 and resp.get_json()["can_restore"] is False
+
+    def test_create_deleted_match_offers_restore_then_restores(self, client, monkeypatch):
+        rm = FakeCompoundRM([PHENYLBORONIC_8_DELETED])
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        monkeypatch.setattr(pubchem, "fetch", lambda cid: PHENYLBORONIC)
+        resp = client.post("/compounds", json={"cid": 66827, "cas": "98-80-6"})
+        assert resp.status_code == 409 and resp.get_json()["can_restore"] is True
+        resp = client.post("/compounds", json={"cid": 66827, "cas": "98-80-6", "restore": 8})
+        assert resp.status_code == 200
+        assert resp.get_json()["id"] == 8 and resp.get_json()["restored"] is True
 
     def test_create_cid_not_in_pubchem_is_404(self, client, monkeypatch):
         monkeypatch.setattr(interface, "rm", lambda: FakeCompoundRM([]))
         monkeypatch.setattr(pubchem, "fetch", lambda cid: None)
         assert client.post("/compounds", json={"cid": 999999999}).status_code == 404
 
-    @pytest.mark.parametrize("body", [{}, {"cid": "abc"}, {"cid": 6251, "cas": "not-a-cas"}])
+    @pytest.mark.parametrize("body", [{}, {"cid": "abc"}, {"cid": 6251, "cas": "not-a-cas"},
+                                      {"cid": 6251, "restore": "8"}, {"cid": 6251, "restore": True}])
     def test_create_rejects_bad_input(self, client, body):
         assert client.post("/compounds", json=body).status_code == 400
 
