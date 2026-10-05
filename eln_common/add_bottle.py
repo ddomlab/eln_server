@@ -8,7 +8,8 @@ points to things that are stored once:
 Only the facts about this one bottle (supplier, lot, purity, dates...) stay as
 extra fields.
 
-create_bottle() does it in order: create from the template -> title and fields ->
+create_bottle() first warns about a likely duplicate (same lot number, supplier and
+chemical as a current bottle). Then, in order: create from the template -> title and fields ->
 link compounds -> hazard and peroxide tags -> put it in its place -> structure image. Once the bottle exists
 it is never deleted: a later step that fails is reported back as a problem, so
 the user can finish it in eLabFTW.
@@ -39,6 +40,15 @@ COMPOUND_FIELDS = {"Full name", "SMILES", "Molecular Weight", "Hazards Link", "P
 
 class InvalidBottle(Exception):
     """The request can't make a bottle (missing or unknown value); nothing was created."""
+
+
+class DuplicateBottle(Exception):
+    """Current bottles look like the same physical bottle; nothing was created."""
+
+    def __init__(self, bottles: list[dict[str, Any]]):
+        self.bottles = bottles
+        super().__init__("Looks like a bottle that is already in the ELN: "
+                         + ", ".join(f"#{b['id']} {b['title']}" for b in bottles))
 
 
 def bottle_fields(extra_fields: dict[str, Any], has_compounds: bool) -> dict[str, Any]:
@@ -112,6 +122,43 @@ def check_request(rm: Resource_Manager, data: dict[str, Any]) -> dict[str, Any]:
             "metadata": metadata, "compound_data": [live_compounds[c] for c in compounds]}
 
 
+def find_duplicates(rm: Resource_Manager, request: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Current bottles that are probably this one entered again: the same lot number and
+    manufacturer (when both are filled in) holding the same chemical (a shared linked
+    compound, or the same CAS field, for older bottles that are not linked).
+    No lot number, no check: different bottles of the same chemical are normal.
+        :return: [{id, title}] of the matching bottles.
+    """
+    fields = request["fields"]
+    lot = str(fields.get("Lot number") or "").strip()
+    if not lot:
+        return []
+    manufacturer = str(fields.get("Manufacturer") or "").strip().casefold()
+    cas_numbers = {str(fields.get("CAS") or "").strip()}
+    cas_numbers |= {c.get("cas_number") for c in request["compound_data"]}
+    cas_numbers -= {"", None}
+
+    found = []
+    for item in rm.search_items_by_field("Lot number", lot):
+        extra = json.loads(item.get("metadata") or "{}").get("extra_fields", {})
+
+        def value(name: str) -> str:
+            return str(extra.get(name, {}).get("value") or "").strip()
+
+        if value("Lot number").casefold() != lot.casefold():
+            continue
+        if manufacturer and value("Manufacturer") and value("Manufacturer").casefold() != manufacturer:
+            continue
+        same_chemical = value("CAS") in cas_numbers
+        if not same_chemical and request["compounds"]:
+            linked = rm.get_item(item["id"]).get("compounds_links") or []
+            same_chemical = any(c["id"] in request["compounds"] for c in linked)
+        if same_chemical:
+            found.append({"id": item["id"], "title": item["title"]})
+    return found
+
+
 def bottle_metadata(metadata: dict[str, Any], fields: dict[str, Any], has_compounds: bool) -> str:
     """The template's metadata with only the bottle's own fields, filled with the user's values."""
     kept = bottle_fields(metadata.get("extra_fields", {}), has_compounds)
@@ -126,11 +173,17 @@ def create_bottle(rm: Resource_Manager, data: dict[str, Any]) -> dict[str, Any]:
         {"category": 2, "title": "Tetrahydrofuran", "compounds": [77],
          "storage": {"place_id": 6, "amount": 500, "unit": "mL"},
          "fields": {"Manufacturer": "Sigma-Aldrich", "Lot number": "SHBM1234"}}
+    With "confirm_duplicate": true it is created even if it looks like an existing bottle.
         :raises InvalidBottle: nothing was created.
+        :raises DuplicateBottle: nothing was created; the user can confirm and send again.
         :return: {"id": new bottle id, "tags": tags added, "problems": [steps that failed
             after it was created]}
     """
     request = check_request(rm, data)
+    if data.get("confirm_duplicate") is not True:
+        duplicates = find_duplicates(rm, request)
+        if duplicates:
+            raise DuplicateBottle(duplicates)
     has_compounds = bool(request["compounds"])
 
     item_id = rm.create_item_from_template(request["category"])

@@ -817,9 +817,11 @@ POLYMER_TEMPLATE = {"id": 3, "title": "Polymer", "metadata": json.dumps({"extra_
 class FakeBottleRM:
     """Stand-in for the calls create_bottle makes; records them in order."""
 
-    def __init__(self, fail=()):
+    def __init__(self, fail=(), existing=()):
         self.calls = []
         self.fail = set(fail)
+        self.existing = list(existing)  # current bottles, as the search returns them
+        self.searches = []
 
     def _record(self, name, *args):
         self.calls.append((name, *args))
@@ -856,6 +858,21 @@ class FakeBottleRM:
 
     def add_tag(self, item_id, tag):
         self._record("tag", item_id, tag)
+
+    def search_items_by_field(self, field, value):
+        self.searches.append((field, value))
+        return [b for b in self.existing
+                if value.lower() in json.loads(b["metadata"])["extra_fields"].get(field, {}).get("value", "").lower()]
+
+    def get_item(self, id):
+        return next(b for b in self.existing if b["id"] == id)
+
+
+def existing_bottle(id, title, links=(), **values):
+    """A current bottle as eLabFTW's search returns it (get_item also gives its compound links)."""
+    fields = {name.replace("_", " "): {"value": v} for name, v in values.items()}
+    return {"id": id, "title": title, "metadata": json.dumps({"extra_fields": fields}),
+            "compounds_links": [{"id": c} for c in links]}
 
 
 THF_COMPOUND = {"id": 77, "name": "Tetrahydrofuran", "smiles": "C1CCOC1", "cas_number": "109-99-9",
@@ -947,6 +964,50 @@ class TestAddBottle:
     def test_units_offered_per_state_are_elabftw_units(self):
         for units in add_bottle.UNITS_BY_STATE.values():
             assert set(units) <= set(add_bottle.UNITS)
+
+
+class TestDuplicateBottles:
+    """Same lot + manufacturer + chemical as a current bottle: warn before creating."""
+
+    def test_same_lot_supplier_and_cas_is_refused(self, fake_image):
+        old = existing_bottle(522, "THF (old)", Lot_number="shbm1234", Manufacturer="sigma-aldrich", CAS="109-99-9")
+        rm = FakeBottleRM(existing=[old])
+        with pytest.raises(add_bottle.DuplicateBottle) as e:
+            add_bottle.create_bottle(rm, THF_BOTTLE)
+        assert e.value.bottles == [{"id": 522, "title": "THF (old)"}]
+        assert rm.calls == [] and rm.searches == [("Lot number", "SHBM1234")]
+
+    def test_linked_compound_counts_as_same_chemical(self, fake_image):
+        old = existing_bottle(600, "Tetrahydrofuran", links=[77], Lot_number="SHBM1234")
+        with pytest.raises(add_bottle.DuplicateBottle):
+            add_bottle.create_bottle(FakeBottleRM(existing=[old]), THF_BOTTLE)
+
+    def test_confirmed_duplicate_is_created(self, fake_image):
+        old = existing_bottle(522, "THF (old)", Lot_number="SHBM1234", CAS="109-99-9")
+        rm = FakeBottleRM(existing=[old])
+        assert add_bottle.create_bottle(rm, {**THF_BOTTLE, "confirm_duplicate": True})["id"] == 640
+
+    @pytest.mark.parametrize("old", [
+        existing_bottle(1, "THF other supplier", Lot_number="SHBM1234", Manufacturer="Fisher", CAS="109-99-9"),
+        existing_bottle(2, "Other chemical", Lot_number="SHBM1234", CAS="67-64-1"),
+        existing_bottle(3, "Longer lot", Lot_number="SHBM12345", CAS="109-99-9"),
+    ])
+    def test_not_the_same_bottle(self, fake_image, old):
+        assert add_bottle.create_bottle(FakeBottleRM(existing=[old]), THF_BOTTLE)["id"] == 640
+
+    def test_no_lot_number_no_check(self, fake_image):
+        rm = FakeBottleRM()
+        fields = {k: v for k, v in THF_BOTTLE["fields"].items() if k != "Lot number"}
+        add_bottle.create_bottle(rm, {**THF_BOTTLE, "fields": fields})
+        assert rm.searches == []
+
+    def test_route_answers_409_with_links(self, client, monkeypatch, fake_image):
+        old = existing_bottle(522, "THF (old)", Lot_number="SHBM1234", CAS="109-99-9")
+        monkeypatch.setattr(interface, "rm", lambda: FakeBottleRM(existing=[old]))
+        resp = client.post("/resources", json=THF_BOTTLE)
+        assert resp.status_code == 409
+        [dup] = resp.get_json()["duplicates"]
+        assert dup["id"] == 522 and dup["url"].endswith("522")
 
 
 class TestBottleTags:

@@ -348,6 +348,18 @@ class Resource_Manager:
         response.raise_for_status()
         return response.json()
 
+    def search_items_by_field(self, field: str, value: str) -> list[dict[str, Any]]:
+        """
+        Current resources (not archived or deleted) whose extra field contains the value,
+        ignoring case. Matches are "contains", so callers compare the value exactly.
+        """
+        # double quotes would end the search term early
+        query = f'extrafield:"{field}":"{value.replace(chr(34), "")}"'
+        response = requests.get(config.URL + "/items", headers=self.header,
+                                params={"q": query, "limit": 100})
+        response.raise_for_status()
+        return response.json()
+
     def get_uploaded_files(self, id:int, resource_type:str="items") -> list:
         """
         Gets a list of uploaded files in the ELN with the given ID.
