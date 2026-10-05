@@ -494,16 +494,18 @@ def move_to_storage():
 @interface_bp.route('/mark_empty', methods=['POST'])
 @cross_origin(origins="http://localhost:8000")
 def mark_empty():
-    data = request.get_json()
-    ids = data.get('id', [])
-    if len(ids) == 0:
-        return jsonify({"error": "No IDs provided"}), 400
-    rmn = rm()
-    if not isinstance(ids, list):
-        return jsonify({"error": "Expected a list of IDs"}), 400
-    for id in ids:
-        rmn.change_item(id, {"status": config.setting("status_empty", 5)})
-    return "Success", 200
+    """Marks the scanned bottles as used up: {id: [ids]}. Status Empty and amount 0.
+    200 with {emptied, problems}."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        ids = _id_list(data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    try:
+        rmn = rm()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+    return jsonify(bottle_actions.mark_empty(rmn, ids, config.setting("status_empty", 5)))
 
 
 @interface_bp.route('/resources', methods=['POST'])

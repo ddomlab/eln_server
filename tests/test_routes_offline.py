@@ -1103,7 +1103,7 @@ class FakeScannerRM:
     def __init__(self, bottles, fail_move=()):
         self.bottles = bottles
         self.fail_move = set(fail_move)
-        self.moves = []
+        self.moves, self.changes, self.amounts = [], [], []
 
     def get_storage_units(self):
         return STORAGE
@@ -1117,6 +1117,14 @@ class FakeScannerRM:
         if item_id in self.fail_move:
             raise RuntimeError("403 Forbidden")
         self.moves.append((item_id, container_id, storage_id))
+
+    def change_item(self, id, body):
+        if id not in self.bottles:
+            raise RuntimeError("404 Not Found")
+        self.changes.append((id, body))
+
+    def set_container_amount(self, item_id, container_id, amount):
+        self.amounts.append((item_id, container_id, amount))
 
 
 class TestMoveBottles:
@@ -1154,6 +1162,26 @@ class TestMoveBottles:
     def test_old_location_routes_are_gone(self, client):
         assert client.post("/change_location", json={"id": [1], "location": "x"}).status_code == 404
         assert client.get("/get_locations").status_code == 404
+
+
+class TestMarkEmpty:
+    def test_status_empty_and_every_storage_entry_to_zero(self):
+        rm = FakeScannerRM({624: [{"id": 234}], 700: [{"id": 8}, {"id": 9}], 393: []})
+        result = bottle_actions.mark_empty(rm, [624, 700, 393], empty_status=5)
+        assert result == {"emptied": [624, 700, 393], "problems": []}
+        assert rm.changes == [(624, {"status": 5}), (700, {"status": 5}), (393, {"status": 5})]
+        assert rm.amounts == [(624, 234, 0), (700, 8, 0), (700, 9, 0)]
+
+    def test_unknown_bottle_is_reported(self):
+        result = bottle_actions.mark_empty(FakeScannerRM({}), [999], empty_status=5)
+        assert result["emptied"] == [] and result["problems"][0].startswith("#999")
+
+    def test_route(self, client, monkeypatch):
+        rm = FakeScannerRM({624: [{"id": 234}]})
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        resp = client.post("/mark_empty", json={"id": [624]})
+        assert resp.status_code == 200 and resp.get_json()["emptied"] == [624]
+        assert rm.amounts == [(624, 234, 0)]
 
 
 class TestCreateItemFromTemplate:

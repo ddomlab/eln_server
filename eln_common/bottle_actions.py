@@ -48,3 +48,26 @@ def move_bottles(rm: Resource_Manager, ids: list[int], storage_id: int) -> dict[
             problems.append(f"#{item_id}: moving failed: {e}")
     return {"moved": moved, "place": places[storage_id].get("full_path") or places[storage_id]["name"],
             "problems": problems}
+
+
+def mark_empty(rm: Resource_Manager, ids: list[int], empty_status: int) -> dict[str, Any]:
+    """
+    Marks each bottle as used up: its status becomes Empty and the amount in its storage
+    entries 0, so eLabFTW's inventory no longer counts it. The bottle and its place stay
+    on record (nothing is deleted).
+        :return: {"emptied": [ids], "problems": [messages]}
+    """
+    emptied, problems = [], []
+    for item_id in ids:
+        try:
+            rm.change_item(item_id, {"status": empty_status})
+        except Exception as e:
+            problems.append(f"#{item_id}: marking it empty failed: {e}")
+            continue
+        try:
+            for entry in rm.get_item(item_id).get("containers") or []:
+                rm.set_container_amount(item_id, entry["id"], 0)
+            emptied.append(item_id)
+        except Exception as e:
+            problems.append(f"#{item_id} is marked Empty, but setting its amount to 0 failed: {e}")
+    return {"emptied": emptied, "problems": problems}
