@@ -815,10 +815,13 @@ POLYMER_TEMPLATE = {"id": 3, "title": "Polymer", "metadata": json.dumps({"extra_
 
 
 class FakeBottleRM:
-    """Stand-in for the calls create_bottle makes; records them in order."""
+    """Stand-in for the calls create_bottles makes; records them in order. Bottles get
+    ids 640, 641...; fail_create_at=n makes the n-th create fail."""
 
-    def __init__(self, fail=(), existing=()):
+    def __init__(self, fail=(), existing=(), fail_create_at=None):
         self.calls = []
+        self.fail_create_at = fail_create_at
+        self.next_id = 640
         self.fail = set(fail)
         self.existing = list(existing)  # current bottles, as the search returns them
         self.searches = []
@@ -842,7 +845,10 @@ class FakeBottleRM:
 
     def create_item_from_template(self, template):
         self._record("create", template)
-        return 640
+        if self.next_id - 639 == self.fail_create_at:
+            raise RuntimeError("eLabFTW is down")
+        self.next_id += 1
+        return self.next_id - 1
 
     def change_item(self, id, body):
         self._record("change", id, body)
@@ -893,7 +899,8 @@ def fake_image(monkeypatch):
 class TestAddBottle:
     def test_creates_links_places_and_draws_in_order(self, fake_image):
         rm = FakeBottleRM()
-        assert add_bottle.create_bottle(rm, THF_BOTTLE) == {"id": 640, "tags": THF_TAGS, "problems": []}
+        assert add_bottle.create_bottles(rm, THF_BOTTLE) == {
+            "bottles": [{"id": 640, "tags": THF_TAGS, "problems": []}], "problems": []}
         assert [c[0] for c in rm.calls] == ["create", "change", "link"] + ["tag"] * 4 + ["storage", "upload"]
         assert rm.calls[0] == ("create", 2)
         assert rm.calls[2] == ("link", 640, 77)
@@ -903,7 +910,7 @@ class TestAddBottle:
 
     def test_bottle_keeps_only_its_own_fields(self, fake_image):
         rm = FakeBottleRM()
-        add_bottle.create_bottle(rm, THF_BOTTLE)
+        add_bottle.create_bottles(rm, THF_BOTTLE)
         body = rm.calls[1][2]
         assert body["title"] == "Tetrahydrofuran"
         metadata = json.loads(body["metadata"])
@@ -914,7 +921,7 @@ class TestAddBottle:
 
     def test_polymer_without_compounds_keeps_its_chemistry_fields(self, fake_image):
         rm = FakeBottleRM()
-        add_bottle.create_bottle(rm, {"category": 3, "title": "P3HT", "fields": {"Mw": 50000, "SMILES": "*c1ccsc1*"},
+        add_bottle.create_bottles(rm, {"category": 3, "title": "P3HT", "fields": {"Mw": 50000, "SMILES": "*c1ccsc1*"},
                                       "storage": {"place_id": 21, "amount": 2, "unit": "g"}})
         metadata = json.loads(rm.calls[1][2]["metadata"])
         assert sorted(metadata["extra_fields"]) == ["Full name", "Mw", "SMILES"]
@@ -922,7 +929,7 @@ class TestAddBottle:
 
     def test_micro_sign_becomes_greek_mu(self, fake_image):
         rm = FakeBottleRM()
-        add_bottle.create_bottle(rm, {**THF_BOTTLE, "storage": {"place_id": 6, "amount": 250, "unit": "\u00b5L"}})
+        add_bottle.create_bottles(rm, {**THF_BOTTLE, "storage": {"place_id": 6, "amount": 250, "unit": "\u00b5L"}})
         assert [c for c in rm.calls if c[0] == "storage"][0][-1] == "\u03bcL"
 
     @pytest.mark.parametrize("change, message", [
@@ -939,16 +946,19 @@ class TestAddBottle:
         ({"fields": {"Room": "3057"}}, "not a field"),
         ({"fields": {"SMILES": "CCO"}}, "not a field"),  # lives in the compound now
         ({"fields": {"Purity": [99]}}, "text or a number"),
+        ({"count": 0}, "between 1 and 20"),
+        ({"count": 21}, "between 1 and 20"),
+        ({"count": "4"}, "between 1 and 20"),
     ])
     def test_bad_request_creates_nothing(self, fake_image, change, message):
         rm = FakeBottleRM()
         with pytest.raises(add_bottle.InvalidBottle, match=message):
-            add_bottle.create_bottle(rm, {**THF_BOTTLE, **change})
+            add_bottle.create_bottles(rm, {**THF_BOTTLE, **change})
         assert rm.calls == []
 
     def test_later_failures_are_reported_and_the_rest_still_runs(self, fake_image):
         rm = FakeBottleRM(fail={"link", "tag", "storage"})
-        result = add_bottle.create_bottle(rm, THF_BOTTLE)
+        result = add_bottle.create_bottles(rm, THF_BOTTLE)["bottles"][0]
         assert result["id"] == 640 and result["tags"] == []
         assert [p.split(" failed")[0] for p in result["problems"]] == [
             "Linking compound #77"] + [f"Adding the tag '{t}'" for t in THF_TAGS] + [
@@ -957,7 +967,7 @@ class TestAddBottle:
 
     def test_solution_gets_tags_of_both_compounds_once(self, fake_image):
         rm = FakeBottleRM()
-        result = add_bottle.create_bottle(rm, {**THF_BOTTLE, "compounds": [72, 77]})
+        result = add_bottle.create_bottles(rm, {**THF_BOTTLE, "compounds": [72, 77]})["bottles"][0]
         assert result["tags"] == THF_TAGS  # Flammable from both, listed once
         assert [c for c in rm.calls if c[0] == "link"] == [("link", 640, 72), ("link", 640, 77)]
 
@@ -966,26 +976,47 @@ class TestAddBottle:
             assert set(units) <= set(add_bottle.UNITS)
 
 
-class TestDuplicateBottles:
-    """Same lot + manufacturer + chemical as a current bottle: warn before creating."""
+class TestSeveralBottles:
+    def test_count_creates_that_many_bottles_with_their_own_ids(self, fake_image):
+        old = existing_bottle(522, "THF (old)", Lot_number="OTHER", CAS="109-99-9")
+        rm = FakeBottleRM(existing=[old])
+        result = add_bottle.create_bottles(rm, {**THF_BOTTLE, "count": 3})
+        assert [b["id"] for b in result["bottles"]] == [640, 641, 642]
+        assert [c[1] for c in rm.calls if c[0] == "storage"] == [640, 641, 642]
+        assert len(rm.searches) == 1  # the same-lot question is asked once per request
+
+    def test_stops_and_reports_when_a_later_bottle_fails(self, fake_image):
+        rm = FakeBottleRM(fail_create_at=3)
+        result = add_bottle.create_bottles(rm, {**THF_BOTTLE, "count": 4})
+        assert [b["id"] for b in result["bottles"]] == [640, 641]
+        assert result["problems"] == ["Only 2 of 4 bottles were created: eLabFTW is down"]
+
+    def test_first_bottle_failing_creates_nothing(self, fake_image):
+        with pytest.raises(RuntimeError):
+            add_bottle.create_bottles(FakeBottleRM(fail_create_at=1), {**THF_BOTTLE, "count": 2})
+
+
+class TestSameLot:
+    """Same lot + manufacturer + chemical as a current bottle: ask before creating, since
+    it may be another bottle of the order or this bottle entered again."""
 
     def test_same_lot_supplier_and_cas_is_refused(self, fake_image):
         old = existing_bottle(522, "THF (old)", Lot_number="shbm1234", Manufacturer="sigma-aldrich", CAS="109-99-9")
         rm = FakeBottleRM(existing=[old])
-        with pytest.raises(add_bottle.DuplicateBottle) as e:
-            add_bottle.create_bottle(rm, THF_BOTTLE)
+        with pytest.raises(add_bottle.SameLotBottles) as e:
+            add_bottle.create_bottles(rm, THF_BOTTLE)
         assert e.value.bottles == [{"id": 522, "title": "THF (old)"}]
         assert rm.calls == [] and rm.searches == [("Lot number", "SHBM1234")]
 
     def test_linked_compound_counts_as_same_chemical(self, fake_image):
         old = existing_bottle(600, "Tetrahydrofuran", links=[77], Lot_number="SHBM1234")
-        with pytest.raises(add_bottle.DuplicateBottle):
-            add_bottle.create_bottle(FakeBottleRM(existing=[old]), THF_BOTTLE)
+        with pytest.raises(add_bottle.SameLotBottles):
+            add_bottle.create_bottles(FakeBottleRM(existing=[old]), THF_BOTTLE)
 
     def test_confirmed_duplicate_is_created(self, fake_image):
         old = existing_bottle(522, "THF (old)", Lot_number="SHBM1234", CAS="109-99-9")
         rm = FakeBottleRM(existing=[old])
-        assert add_bottle.create_bottle(rm, {**THF_BOTTLE, "confirm_duplicate": True})["id"] == 640
+        assert add_bottle.create_bottles(rm, {**THF_BOTTLE, "confirm_same_lot": True})["bottles"][0]["id"] == 640
 
     @pytest.mark.parametrize("old", [
         existing_bottle(1, "THF other supplier", Lot_number="SHBM1234", Manufacturer="Fisher", CAS="109-99-9"),
@@ -993,12 +1024,12 @@ class TestDuplicateBottles:
         existing_bottle(3, "Longer lot", Lot_number="SHBM12345", CAS="109-99-9"),
     ])
     def test_not_the_same_bottle(self, fake_image, old):
-        assert add_bottle.create_bottle(FakeBottleRM(existing=[old]), THF_BOTTLE)["id"] == 640
+        assert add_bottle.create_bottles(FakeBottleRM(existing=[old]), THF_BOTTLE)["bottles"][0]["id"] == 640
 
     def test_no_lot_number_no_check(self, fake_image):
         rm = FakeBottleRM()
         fields = {k: v for k, v in THF_BOTTLE["fields"].items() if k != "Lot number"}
-        add_bottle.create_bottle(rm, {**THF_BOTTLE, "fields": fields})
+        add_bottle.create_bottles(rm, {**THF_BOTTLE, "fields": fields})
         assert rm.searches == []
 
     def test_route_answers_409_with_links(self, client, monkeypatch, fake_image):
@@ -1006,8 +1037,9 @@ class TestDuplicateBottles:
         monkeypatch.setattr(interface, "rm", lambda: FakeBottleRM(existing=[old]))
         resp = client.post("/resources", json=THF_BOTTLE)
         assert resp.status_code == 409
-        [dup] = resp.get_json()["duplicates"]
+        [dup] = resp.get_json()["same_lot"]
         assert dup["id"] == 522 and dup["url"].endswith("522")
+        assert "already have an ELN label" in resp.get_json()["question"]
 
 
 class TestBottleTags:
@@ -1039,9 +1071,9 @@ class TestCreateResourceRoute:
         monkeypatch.setattr(interface, "rm", lambda: FakeBottleRM())
         resp = client.post("/resources", json=THF_BOTTLE)
         assert resp.status_code == 201
-        assert resp.get_json()["id"] == 640 and resp.get_json()["problems"] == []
-        assert resp.get_json()["tags"] == THF_TAGS
-        assert resp.get_json()["url"].endswith("640")
+        [bottle] = resp.get_json()["bottles"]
+        assert bottle["id"] == 640 and bottle["problems"] == [] and bottle["tags"] == THF_TAGS
+        assert bottle["url"].endswith("640") and resp.get_json()["problems"] == []
 
     def test_bad_request_is_400(self, client, monkeypatch):
         monkeypatch.setattr(interface, "rm", lambda: FakeBottleRM())

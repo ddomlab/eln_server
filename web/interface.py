@@ -523,12 +523,12 @@ def add_option():
 @interface_bp.route('/resources', methods=['POST'])
 @cross_origin(origins="http://localhost:8000")
 def create_resource():
-    """Adds a bottle linked to its compound(s) and put in a storage place:
-    {category, title, compounds: [ids], storage: {place_id, amount, unit}, fields: {name: value}}.
-    400 if the request is incomplete (nothing created). 409 with "duplicates" when a
-    current bottle has the same lot, manufacturer and chemical; send again with
-    confirm_duplicate: true to add it anyway. 201 with {id, url, tags, problems} once
-    the bottle exists; problems lists any later step that failed."""
+    """Adds one or more identical bottles, linked to their compound(s) and put in a storage
+    place: {category, title, compounds: [ids], count, storage: {place_id, amount, unit},
+    fields: {name: value}}. 400 if the request is incomplete (nothing created). 409 with
+    "same_lot" and a "question" for the user when bottles from that lot are already in the
+    ELN; send again with confirm_same_lot: true to add them. 201 with
+    {bottles: [{id, url, tags, problems}], problems} once at least one bottle exists."""
     data = request.get_json(force=True, silent=True)
     if not isinstance(data, dict):
         return jsonify({"status": "error", "error": "Expected a JSON object"}), 400
@@ -537,15 +537,16 @@ def create_resource():
     except ValueError as e:
         return jsonify({"status": "error", "error": str(e)}), 401
     try:
-        result = add_bottle.create_bottle(rmn, data)
+        result = add_bottle.create_bottles(rmn, data)
     except add_bottle.InvalidBottle as e:
         return jsonify({"status": "error", "error": str(e)}), 400
-    except add_bottle.DuplicateBottle as e:
-        return jsonify({"status": "error", "error": str(e), "duplicates": [
+    except add_bottle.SameLotBottles as e:
+        return jsonify({"status": "error", "error": str(e), "question": e.question, "same_lot": [
             {**b, "url": config.item_web_url(b["id"])} for b in e.bottles]}), 409
     except Exception as e:
         return jsonify({"status": "error", "error": f"The bottle was not created: {e}"}), 500
-    result["url"] = config.item_web_url(result["id"])
+    for bottle in result["bottles"]:
+        bottle["url"] = config.item_web_url(bottle["id"])
     return jsonify(result), 201
 
 

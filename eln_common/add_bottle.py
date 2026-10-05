@@ -8,11 +8,14 @@ points to things that are stored once:
 Only the facts about this one bottle (supplier, lot, purity, dates...) stay as
 extra fields.
 
-create_bottle() first warns about a likely duplicate (same lot number, supplier and
-chemical as a current bottle). Then, in order: create from the template -> title and fields ->
-link compounds -> hazard and peroxide tags -> put it in its place -> structure image. Once the bottle exists
-it is never deleted: a later step that fails is reported back as a problem, so
-the user can finish it in eLabFTW.
+create_bottles() can add several identical bottles from one order at once; each
+gets its own id and label. It first reminds the user when bottles from the same
+lot (same lot number, supplier and chemical) are already in the ELN, since an
+already-labelled bottle may be entered again by mistake. Then, for each bottle:
+create from the template -> title and fields -> link compounds -> hazard and
+peroxide tags -> put it in its place -> structure image. Once a bottle exists it
+is never deleted: a later step that fails is reported back as a problem, so the
+user can finish it in eLabFTW.
 """
 
 import json
@@ -31,6 +34,8 @@ UNITS_BY_STATE = {
     "Gas": ["bar", "L", "g"],
 }
 
+MAX_BOTTLES = 20  # per request, so a typo like 400 can't flood the ELN
+
 # template fields that now live in Storage (place, amount and unit)...
 STORAGE_FIELDS = {"Room", "Location", "Quantity"}
 # ...and in the linked compounds. Bottles without compounds (polymers) keep these.
@@ -42,13 +47,17 @@ class InvalidBottle(Exception):
     """The request can't make a bottle (missing or unknown value); nothing was created."""
 
 
-class DuplicateBottle(Exception):
-    """Current bottles look like the same physical bottle; nothing was created."""
+class SameLotBottles(Exception):
+    """Bottles from the same lot are already in the ELN; nothing was created yet.
+    They may be other bottles of the same order, or this bottle entered before."""
+
+    question = ("Does this bottle already have an ELN label? If yes, it is already in the ELN: "
+                "don't add it again. If it is another bottle from the same order, add it.")
 
     def __init__(self, bottles: list[dict[str, Any]]):
         self.bottles = bottles
-        super().__init__("Looks like a bottle that is already in the ELN: "
-                         + ", ".join(f"#{b['id']} {b['title']}" for b in bottles))
+        super().__init__(f"{len(bottles)} bottle{'s' if len(bottles) > 1 else ''} from this lot "
+                         "already in the ELN: " + ", ".join(f"#{b['id']} {b['title']}" for b in bottles))
 
 
 def bottle_fields(extra_fields: dict[str, Any], has_compounds: bool) -> dict[str, Any]:
@@ -106,6 +115,10 @@ def check_request(rm: Resource_Manager, data: dict[str, Any]) -> dict[str, Any]:
         raise InvalidBottle("The amount must be a number, 0 or more")
     unit = clean_unit(storage.get("unit"))
 
+    count = data.get("count", 1)
+    if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= MAX_BOTTLES:
+        raise InvalidBottle(f"The number of bottles must be between 1 and {MAX_BOTTLES}")
+
     metadata = json.loads(template.get("metadata") or "{}")
     allowed = bottle_fields(metadata.get("extra_fields", {}), bool(compounds))
     fields = data.get("fields") or {}
@@ -117,17 +130,16 @@ def check_request(rm: Resource_Manager, data: dict[str, Any]) -> dict[str, Any]:
         if value is not None and not isinstance(value, (str, int, float)):
             raise InvalidBottle(f"'{name}' must be text or a number")
 
-    return {"category": category, "title": title.strip(), "compounds": compounds,
+    return {"category": category, "title": title.strip(), "compounds": compounds, "count": count,
             "place_id": place_id, "amount": amount, "unit": unit, "fields": fields,
             "metadata": metadata, "compound_data": [live_compounds[c] for c in compounds]}
 
 
-def find_duplicates(rm: Resource_Manager, request: dict[str, Any]) -> list[dict[str, Any]]:
+def find_same_lot(rm: Resource_Manager, request: dict[str, Any]) -> list[dict[str, Any]]:
     """
-    Current bottles that are probably this one entered again: the same lot number and
-    manufacturer (when both are filled in) holding the same chemical (a shared linked
-    compound, or the same CAS field, for older bottles that are not linked).
-    No lot number, no check: different bottles of the same chemical are normal.
+    Current bottles from the same lot: the same lot number and manufacturer (when both
+    are filled in) holding the same chemical (a shared linked compound, or the same CAS
+    field, for older bottles that are not linked). No lot number, no check.
         :return: [{id, title}] of the matching bottles.
     """
     fields = request["fields"]
@@ -167,25 +179,44 @@ def bottle_metadata(metadata: dict[str, Any], fields: dict[str, Any], has_compou
     return json.dumps({**metadata, "extra_fields": kept})
 
 
-def create_bottle(rm: Resource_Manager, data: dict[str, Any]) -> dict[str, Any]:
+def create_bottles(rm: Resource_Manager, data: dict[str, Any]) -> dict[str, Any]:
     """
-    Creates a bottle from a request like
-        {"category": 2, "title": "Tetrahydrofuran", "compounds": [77],
+    Creates one or more identical bottles from a request like
+        {"category": 2, "title": "Tetrahydrofuran", "compounds": [77], "count": 4,
          "storage": {"place_id": 6, "amount": 500, "unit": "mL"},
          "fields": {"Manufacturer": "Sigma-Aldrich", "Lot number": "SHBM1234"}}
-    With "confirm_duplicate": true it is created even if it looks like an existing bottle.
+    With "confirm_same_lot": true it goes ahead even when bottles from that lot exist.
         :raises InvalidBottle: nothing was created.
-        :raises DuplicateBottle: nothing was created; the user can confirm and send again.
-        :return: {"id": new bottle id, "tags": tags added, "problems": [steps that failed
-            after it was created]}
+        :raises SameLotBottles: nothing was created; the user can confirm and send again.
+        :raises Exception: the first bottle could not be created (nothing was created).
+        :return: {"bottles": [{"id", "tags", "problems"}, ...], "problems": [...]}; the
+            outer problems say if fewer bottles than asked for could be created.
     """
     request = check_request(rm, data)
-    if data.get("confirm_duplicate") is not True:
-        duplicates = find_duplicates(rm, request)
-        if duplicates:
-            raise DuplicateBottle(duplicates)
-    has_compounds = bool(request["compounds"])
+    if data.get("confirm_same_lot") is not True:
+        same_lot = find_same_lot(rm, request)
+        if same_lot:
+            raise SameLotBottles(same_lot)
 
+    bottles = []
+    for _ in range(request["count"]):
+        try:
+            bottles.append(create_one(rm, request))
+        except Exception as e:
+            if not bottles:
+                raise
+            return {"bottles": bottles, "problems": [
+                f"Only {len(bottles)} of {request['count']} bottles were created: {e}"]}
+    return {"bottles": bottles, "problems": []}
+
+
+def create_one(rm: Resource_Manager, request: dict[str, Any]) -> dict[str, Any]:
+    """
+    Creates one bottle from a checked request (see check_request).
+        :raises Exception: the bottle itself could not be created.
+        :return: {"id", "tags": tags added, "problems": [steps that failed after it was created]}
+    """
+    has_compounds = bool(request["compounds"])
     item_id = rm.create_item_from_template(request["category"])
     problems = []
 
