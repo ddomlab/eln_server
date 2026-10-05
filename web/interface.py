@@ -2,7 +2,7 @@ import io
 import json
 from datetime import datetime
 
-from flask import Blueprint, current_app, jsonify, request, send_file, send_from_directory
+from flask import Blueprint, current_app, jsonify, redirect, request, send_file, send_from_directory
 from flask_cors import cross_origin
 from requests import HTTPError
 
@@ -12,10 +12,8 @@ import eln_common.bottle_tags as bottle_tags
 import eln_common.config as config
 import eln_common.pubchem as pubchem
 import eln_common.storage_places as storage_places
-from eln_common.fill_info import check_if_cas
 import web.label_creating as label_creating
 import web.print_handling as print_handling
-import web.search_process as search_process
 from web.auth import rm
 
 interface_bp = Blueprint("interface", __name__)
@@ -45,7 +43,8 @@ def eln_config():
 
 @interface_bp.route("/add_resource_interface")
 def add_resource_interface():
-    return send_from_directory(current_app.static_folder, "add_resource.html")  # type: ignore
+    # the old 16-field form was replaced by the add-bottle page; keep old links working
+    return redirect("/add_bottle_interface")
 
 
 @interface_bp.route("/add_bottle_interface")
@@ -204,7 +203,7 @@ def create_compound():
     except (TypeError, ValueError):
         return jsonify({"status": "error", "error": "Missing or invalid PubChem ID (cid)"}), 400
     cas = (data.get('cas') or '').strip() or None
-    if cas and not check_if_cas(cas):
+    if cas and not pubchem.check_if_cas(cas):
         return jsonify({"status": "error", "error": f"'{cas}' is not a valid CAS number"}), 400
     restore_id = data.get('restore')
     if restore_id is not None and (not isinstance(restore_id, int) or isinstance(restore_id, bool)):
@@ -374,31 +373,14 @@ def create_label():
         icon = None
     if icon == "None":
         icon = None
-    label_creating.print_label(
+    pdf = label_creating.label_pdf(
         caption=title,
         longcaption=text,
         icon=icon,
         codecontent=qr_content,
         height=height
     )
-    return send_from_directory(current_app.static_folder, "print.pdf")  # type: ignore
-
-
-@interface_bp.route('/search', methods=['POST'])
-@cross_origin(origins="http://localhost:8000")
-def search():
-    data = request.get_json(force=True)  # Parse JSON from body
-    CAS = data.get('CAS')
-    template = data.get('template')
-
-    print("Search query:", CAS)
-    try:
-        results = search_process.search_and_fill(template, CAS)
-    except ValueError as e:
-        print("Error in search_and_fill:", e)
-        return jsonify({"error": str(e)}), 400
-    print("Results:", results)
-    return jsonify(results)
+    return send_file(io.BytesIO(pdf), mimetype="application/pdf", download_name="label.pdf")
 
 
 @interface_bp.route('/print', methods=['POST'])
@@ -506,72 +488,6 @@ def mark_empty():
     return "Success", 200
 
 
-@interface_bp.route('/template', methods=['GET'])
-@cross_origin(origins="http://localhost:8000")
-def get_template():
-    cat = request.args.get('category')
-    if cat is None:
-        return jsonify({})
-    try:
-        # match on the category's id -- list position is not stable across
-        # instances (or across deleting/reordering categories)
-        rmn = rm()
-        types = rmn.get_items_types()
-        template = next((t for t in types if int(t["id"]) == int(cat)), None)
-        if template is None:
-            return jsonify({"status": "error", "error": f"No resource category with id {cat}"}), 404
-        if "metadata" not in template:
-            # eLabFTW >= 5.6 omits metadata from the items_types listing;
-            # the client needs it to build the form, so fetch the full type
-            template = rmn.get_items_type(int(cat))
-        return template
-    except Exception as e:
-        print("Error initializing Resource_Manager:", e)
-        return jsonify({"status": "error", "error": str(e)}), 400
-
-
-@interface_bp.route('/add_option', methods=['POST'])
-@cross_origin(origins="http://localhost:8000")
-def add_option():
-    """Appends an option to a select extra field in a category's template, so
-    a value typed under "Other" becomes a real choice for future resources.
-    Expects {category, field, option}. Note eLabFTW only lets team admins edit
-    templates, so this fails with the eLN's error for everyone else."""
-    data = request.get_json(force=True)
-    field = data.get('field')
-    option = str(data.get('option') or "").strip()
-    try:
-        category = int(data.get('category'))
-    except (TypeError, ValueError):
-        return jsonify({"status": "error", "error": "Invalid category id"}), 400
-    if not field or not option:
-        return jsonify({"status": "error", "error": "Both 'field' and 'option' are required"}), 400
-
-    try:
-        rmn = rm()
-    except ValueError as e:
-        return jsonify({"status": "error", "error": str(e)}), 401
-
-    try:
-        template = rmn.get_items_type(category)
-        metadata = json.loads(template.get("metadata") or "{}")
-        field_def = metadata.get("extra_fields", {}).get(field)
-        if field_def is None:
-            return jsonify({"status": "error",
-                            "error": f"Category {category} has no extra field named '{field}'"}), 404
-        if field_def.get("type") != "select":
-            return jsonify({"status": "error",
-                            "error": f"Field '{field}' is not a select field"}), 400
-        options = field_def.setdefault("options", [])
-        if option not in options:
-            options.append(option)
-            rmn.change_items_type(category, {"metadata": json.dumps(metadata)})
-        return jsonify({"status": "ok", "options": options})
-    except Exception as e:
-        print("Error adding option to template:", e)
-        return jsonify({"status": "error", "error": str(e)}), 400
-
-
 @interface_bp.route('/resources', methods=['POST'])
 @cross_origin(origins="http://localhost:8000")
 def create_resource():
@@ -600,28 +516,6 @@ def create_resource():
     for bottle in result["bottles"]:
         bottle["url"] = config.item_web_url(bottle["id"])
     return jsonify(result), 201
-
-
-@interface_bp.route('/add_resource', methods=['POST'])
-@cross_origin(origins="http://localhost:8000")
-def add_resource():
-    try:
-        data = request.get_json(force=True)
-        if not isinstance(data, dict):
-            raise ValueError("Expected top-level JSON object")
-
-        resource = search_process.dict_complexify(data)
-        try:
-            rmn = rm()
-            item_id = rmn.create_item(data['category'], resource)
-            return jsonify({"status": "ok", "received": data, "id": item_id})
-        except Exception as e:
-            print("Error Initializing Resource Manager:", e)
-            return jsonify({"status": "error", "error": str(e)}), 400
-
-    except Exception as e:  # send all errors to the client
-        print("Error parsing submission:", e)
-        return jsonify({"status": "error", "error": str(e)}), 400
 
 
 @interface_bp.route('/get_locations', methods=['GET'])

@@ -29,7 +29,7 @@ To install an eLabFTW instance, follow the eLabFTW installation instructions at 
 | Directory | Contents |
 |---|---|
 | `app.py` | Flask entry point; registers blueprints (gunicorn target `app:app`) |
-| `eln_common/` | eLab API wrapper (`Resource_Manager`, `config`, `fill_info`) — formerly `eln_packages_common` |
+| `eln_common/` | eLab API wrapper (`Resource_Manager`, `config`, `pubchem`, `compound_import`, `add_bottle`...) — formerly `eln_packages_common` |
 | `automations/` | label generation, RDKit images, peroxide checks, Slack bot — formerly `eln_packages_backend` |
 | `web/` | Flask blueprints: `interface` (the UI routes) and `automation_api` (`/api/...`) |
 | `static/` | Web UI pages and label templates |

@@ -14,9 +14,7 @@ import eln_common.compound_import as compound_import
 import eln_common.pubchem as pubchem
 import eln_common.storage_places as storage_places
 import web.interface as interface
-import web.search_process as search_process
 from automations.labels.generate_label import LabelGenerator
-from eln_common.fill_info import check_if_cas
 from eln_common.resourcemanage import Resource_Manager
 from web.auth import get_key
 
@@ -32,8 +30,16 @@ class TestBasicRoutes:
         assert resp.status_code == 200
         assert b"<html" in resp.data.lower()
 
-    def test_add_resource_interface(self, client):
-        assert client.get("/add_resource_interface").status_code == 200
+    def test_old_add_resource_page_redirects_to_the_new_one(self, client):
+        resp = client.get("/add_resource_interface")
+        assert resp.status_code == 302 and resp.headers["Location"].endswith("/add_bottle_interface")
+
+    @pytest.mark.parametrize("route", ["/search", "/add_resource", "/add_option"])
+    def test_old_add_routes_are_gone(self, client, route):
+        assert client.post(route, json={}).status_code == 404
+
+    def test_old_template_route_is_gone(self, client):
+        assert client.get("/template?category=2").status_code == 404
 
     def test_label_gen_interface(self, client):
         assert client.get("/label_gen_interface").status_code == 200
@@ -94,82 +100,20 @@ class TestInputValidation:
         assert resp.status_code == 400
         assert "error" in resp.get_json()
 
-    def test_template_without_category_returns_empty(self, client):
-        resp = client.get("/template")
-        assert resp.status_code == 200
-        assert resp.get_json() == {}
-
-    def test_template_without_key_errors(self, client):
-        resp = client.get("/template?category=2")
-        assert resp.status_code == 400
-
     def test_get_locations_without_key_errors(self, client):
         resp = client.get("/get_locations")
         assert resp.status_code == 400
 
-    def test_add_resource_non_object_body_rejected(self, client):
-        resp = client.post("/add_resource", json=[1, 2, 3])
-        assert resp.status_code == 400
-        assert resp.get_json()["status"] == "error"
-
-    def test_add_resource_missing_fields_rejected(self, client):
-        resp = client.post("/add_resource", json={"title": "no other fields"})
-        assert resp.status_code == 400
-
-    @pytest.mark.parametrize(
-        "body",
-        [
-            {"field": "Location", "option": "Shelf 9"},  # no category
-            {"category": "x", "field": "Location", "option": "Shelf 9"},
-            {"category": 2, "option": "Shelf 9"},  # no field
-            {"category": 2, "field": "Location"},  # no option
-            {"category": 2, "field": "Location", "option": "   "},
-        ],
-    )
-    def test_add_option_invalid_body_rejected(self, client, body):
-        resp = client.post("/add_option", json=body)
-        assert resp.status_code == 400
-        assert resp.get_json()["status"] == "error"
-
-    def test_add_option_without_key_errors(self, client):
-        resp = client.post(
-            "/add_option", json={"category": 2, "field": "Location", "option": "Shelf 9"}
-        )
-        assert resp.status_code == 401
-
-
-class TestSearchProcessHelpers:
-    TEMPLATE = {
-        "title": "Water",
-        "body": "<p>hi</p>",
-        "category": 2,
-        "extra_fields": {"CAS": {"type": "text", "value": "7732-18-5"}},
-    }
-
-    def test_dict_complexify(self):
-        complexed = search_process.dict_complexify(self.TEMPLATE)
-        assert complexed["title"] == "Water"
-        assert complexed["category"] == 2
-        assert json.loads(complexed["metadata"])["extra_fields"] == self.TEMPLATE["extra_fields"]
-
-    def test_simplify_inverts_complexify(self):
-        simplified = search_process.dict_simplify(search_process.dict_complexify(self.TEMPLATE))
-        assert simplified == {
-            "title": "Water",
-            "extra_fields": self.TEMPLATE["extra_fields"],
-        }
-
-
 class TestCasValidation:
     @pytest.mark.parametrize("cas", ["7732-18-5", "50-00-0", "1234567-89-1"])
     def test_valid_cas(self, cas):
-        assert check_if_cas(cas)
+        assert pubchem.check_if_cas(cas)
 
     @pytest.mark.parametrize(
         "not_cas", ["", "water", "7732-18", "7732-185-5", "7732-18-55", "a-bc-d", "7-73-2"]
     )
     def test_invalid_cas(self, not_cas):
-        assert not check_if_cas(not_cas)
+        assert not pubchem.check_if_cas(not_cas)
 
 
 class TestConfig:
@@ -303,21 +247,16 @@ class TestSecrets:
 
 
 class FakeRM:
-    """Minimal Resource_Manager stand-in for label/creation tests."""
+    """Minimal Resource_Manager stand-in for label tests."""
 
     printer_path = "/tmp/label.pdf"
 
-    def __init__(self, item: dict | None = None, create_id: int = 999):
+    def __init__(self, item: dict | None = None):
         self.item = item
-        self.create_id = create_id
-        self.created = []
 
     def get_item(self, id):
         return self.item
 
-    def create_item(self, category, body):
-        self.created.append((category, body))
-        return self.create_id
 
 
 class TestLabelGenerator:
@@ -360,25 +299,6 @@ class TestLabelGenerator:
         gen = LabelGenerator(rm)  # type: ignore[arg-type]
         gen.add_item(393)
         assert gen.records[0]["received_date"] == ""
-
-
-class TestAddResource:
-    def test_add_resource_creates_item_from_template(self, client, monkeypatch):
-        fake_rm = FakeRM(create_id=999)
-        monkeypatch.setattr(interface, "rm", lambda: fake_rm)
-        resp = client.post("/add_resource", json={
-            "title": "new thing",
-            "body": "",
-            "category": 2,
-            "extra_fields": {},
-        })
-        assert resp.status_code == 200
-        assert resp.get_json() == {
-            "status": "ok",
-            "received": {"title": "new thing", "body": "", "category": 2, "extra_fields": {}},
-            "id": 999,
-        }
-        assert fake_rm.created[0][0] == 2
 
 
 class TestLookupLists:
@@ -1184,18 +1104,13 @@ class TestCreateItemFromTemplate:
     """New resources start from their template, so they get its category and
     default status (items created from a bare category had no status)."""
 
-    def test_posts_template_and_patches_the_rest(self):
-        posted, patched = [], []
+    def test_posts_only_the_template(self):
+        posted = []
         rm = Resource_Manager.__new__(Resource_Manager)  # skip the API-key setup
         rm.itemsapi = SimpleNamespace(post_item_with_http_info=lambda body: (
             posted.append(body) or (None, 201, {"Location": "https://eln/api/v2/items/615"})))
-        rm.change_item = lambda id, body: patched.append((id, body))
-
-        body = {"title": "Sudan I", "body": "", "category": 2, "metadata": "{}"}
-        assert rm.create_item(2, body) == 615
+        assert rm.create_item_from_template(2) == 615
         assert posted == [{"template": 2}]
-        # category comes from the template, so it isn't patched over
-        assert patched == [(615, {"title": "Sudan I", "body": "", "metadata": "{}"})]
 
 
 class TestCreateLabel:

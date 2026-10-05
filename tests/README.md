@@ -5,7 +5,7 @@ Two kinds of tests:
 | File | What it covers | Needs |
 |---|---|---|
 | `test_routes_offline.py` | Routing, auth-key extraction, input validation, CAS validation, config loading, pure helpers | Nothing external |
-| `test_live_eln.py` | Reads, mutations, label printing, the automation API, and `/search` against the **real** eLabFTW server (and PubChem) | An eLN API key |
+| `test_live_eln.py` | Reads, mutations, label printing, and the automation API against the **real** eLabFTW server (and PubChem) | An eLN API key |
 
 Live tests are marked `@pytest.mark.live` (registered in `pytest.ini`).
 

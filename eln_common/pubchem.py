@@ -15,12 +15,15 @@ from typing import Any, Iterator
 
 import requests
 
-from eln_common.fill_info import check_if_cas
-
 PUG = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 PUG_VIEW = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view"
 PROPERTIES = "Title,IUPACName,MolecularFormula,MolecularWeight,SMILES,InChI,InChIKey"
 TIMEOUT = 30
+
+
+def check_if_cas(text: str) -> bool:
+    """Whether the text is shaped like a CAS number: 2-7 digits, 2 digits, 1 digit (e.g. 109-99-9)."""
+    return re.fullmatch(r"\d{2,7}-\d{2}-\d", text) is not None
 
 
 def _json(response: requests.Response) -> dict[str, Any] | None:

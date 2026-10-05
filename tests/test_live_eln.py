@@ -48,23 +48,11 @@ class TestReads:
         assert item["id"] == TEST_ITEM_ID
         assert item["title"]
 
-    def test_template_endpoint(self, client, auth_headers, live_rm):
-        category = int(live_rm.get_item(TEST_ITEM_ID)["category"])
-        resp = client.get(f"/template?category={category}", headers=auth_headers)
-        assert resp.status_code == 200
-        template = resp.get_json()
-        assert int(template["id"]) == category
-        assert "metadata" in template
-
     def test_get_locations(self, client, auth_headers):
         resp = client.get("/get_locations", headers=auth_headers)
         assert resp.status_code == 200
         locations = resp.get_json()
         assert isinstance(locations, list)
-
-    def test_template_unknown_category_is_404(self, client, auth_headers):
-        resp = client.get("/template?category=999999", headers=auth_headers)
-        assert resp.status_code == 404
 
     def test_categories_lists_team_categories(self, client, auth_headers):
         resp = client.get("/categories", headers=auth_headers)
@@ -100,12 +88,6 @@ class TestReads:
         assert resp.get_json()["updated"] == {"status_open": 4, "chemical_categories": [2, 3, 4]}
         assert config.setting("chemical_categories", []) == [2, 3, 4]
         assert "## Team-specific IDs" in cfg_copy.read_text()  # comments survive
-
-    def test_template_with_garbage_key_errors(self, client):
-        resp = client.get(
-            "/template?category=2", headers={"Authorization": "not-a-real-key"}
-        )
-        assert resp.status_code == 400
 
 
 class TestMutations:
@@ -164,46 +146,3 @@ class TestPrint:
         resp = client.post("/print", json={"id": [TEST_ITEM_ID]}, headers=auth_headers)
         assert resp.status_code == 200
         assert resp.data.startswith(b"%PDF")
-
-
-class TestSearch:
-    TEMPLATE = {
-        "title": "",
-        "body": "",
-        "category": 2,
-        "extra_fields": {
-            "Full name": {"type": "text", "value": ""},
-            "CAS": {"type": "text", "value": ""},
-        },
-    }
-
-    def test_search_by_cas_fills_fields(self, client):
-        resp = client.post(
-            "/search", json={"CAS": "7732-18-5", "template": self.TEMPLATE}
-        )
-        assert resp.status_code == 200
-        result = resp.get_json()
-        fields = result["extra_fields"]
-        assert fields["CAS"]["value"] == "7732-18-5"
-        assert "pubchem" in fields["Pubchem Link"]["value"].lower()
-        assert float(fields["Molecular Weight"]["value"]) == pytest.approx(18.015, abs=0.1)
-        assert result["title"].lower() == "water"
-
-    @pytest.mark.xfail(
-        reason="pubchempy cannot read SMILES from the current PubChem schema; "
-        "fill_info falls back to 'PubChem Error, could not fetch SMILES'",
-        strict=False,
-    )
-    def test_search_fills_smiles(self, client):
-        resp = client.post(
-            "/search", json={"CAS": "7732-18-5", "template": self.TEMPLATE}
-        )
-        assert resp.status_code == 200
-        assert resp.get_json()["extra_fields"]["SMILES"]["value"] == "O"
-
-    def test_search_unknown_compound_is_400(self, client):
-        resp = client.post(
-            "/search", json={"CAS": "0000000-99-9", "template": self.TEMPLATE}
-        )
-        assert resp.status_code == 400
-        assert "error" in resp.get_json()

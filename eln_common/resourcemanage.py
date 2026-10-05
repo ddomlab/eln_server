@@ -44,21 +44,6 @@ class Resource_Manager:
         """
         url = config.URL + url
         return requests.patch(url, headers=self.header, json=json)
-    def create_item(self, template: int, body_dict: dict[str, Any]) -> int:
-        """
-        Creates an item in the ELN from the given resource template, then applies body_dict.
-        Starting from the template gives the item the template's category and default
-        status, and still works when the team enforces template use.
-            :param int template: The ID of the resource template (items_types) to create from.
-                Template IDs are team-specific; list them with get_items_types().
-            :param dict body_dict: The body of the item to be created.
-            :return: The ID of the newly created item.
-        """
-        item_id = self.create_item_from_template(template)
-        # the template already set the right category; callers pass the template ID there
-        self.change_item(item_id, {k: v for k, v in body_dict.items() if k != "category"})
-        return item_id
-
     def create_item_from_template(self, template: int) -> int:
         """
         Creates an item from the given resource template, with the template's category,
@@ -121,21 +106,6 @@ class Resource_Manager:
         except (config.elabapi_python.rest.ApiException, requests.HTTPError):
             raise ValueError("Experiment or item does not exist")
         self.post_url(url)
-    def find_and_create_compound(self, CAS:str):
-        """
-        Finds a compound in the ELN with the given CAS number and creates it if it does not exist.
-            :param str CAS: The CAS number of the compound to be found.
-            :return: The ID of the compound.
-        """
-        self.post_url("/compounds/", json={"action":"duplicate", "cas":CAS})
-    def associate_compound(self, comp_id:int,res_id:int):
-        """
-        Associates a compound with the given CAS number to an item in the ELN with the given ID.
-            :param str CAS: The CAS number of the compound to be associated.
-            :param int id: The ID of the item to be associated with.
-        """
-        self.post_url("/items/" + str(res_id) + "/compounds/" + str(comp_id))
-    
     def get_compounds(self):
         """
         Gets every (non-deleted) compound in the ELN as dictionaries.
