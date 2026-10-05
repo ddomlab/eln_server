@@ -54,6 +54,17 @@ class Resource_Manager:
             :param dict body_dict: The body of the item to be created.
             :return: The ID of the newly created item.
         """
+        item_id = self.create_item_from_template(template)
+        # the template already set the right category; callers pass the template ID there
+        self.change_item(item_id, {k: v for k, v in body_dict.items() if k != "category"})
+        return item_id
+
+    def create_item_from_template(self, template: int) -> int:
+        """
+        Creates an item from the given resource template, with the template's category,
+        default status, body and extra fields, and nothing else.
+            :return: The ID of the newly created item.
+        """
         response = self.itemsapi.post_item_with_http_info( # type: ignore
             body={
                 "template": template,
@@ -61,10 +72,7 @@ class Resource_Manager:
         )
         locationHeaderInResponse: str = str(response[2].get("Location")) #type: ignore
         print(f"The newly created item is here: {locationHeaderInResponse}")
-        item_id:int = int(locationHeaderInResponse.split("/").pop())
-        # the template already set the right category; callers pass the template ID there
-        self.change_item(item_id, {k: v for k, v in body_dict.items() if k != "category"})
-        return item_id
+        return int(locationHeaderInResponse.split("/").pop())
 
     def change_item(self, id: int, body_dict: dict[str, Any]) -> None:
         """
@@ -177,6 +185,19 @@ class Resource_Manager:
         response = self.get_url("/storage_units?hierarchy=true")
         response.raise_for_status()
         return response.json()
+
+    def link_compound(self, item_id: int, compound_id: int) -> None:
+        """Links a compound to an item (it then shows under the item's Compounds)."""
+        # eLabFTW needs a JSON body here, even an empty one
+        self.post_url(f"/items/{item_id}/compounds_links/{compound_id}", json={}).raise_for_status()
+
+    def add_to_storage(self, item_id: int, storage_id: int, amount: float, unit: str) -> None:
+        """
+        Puts an item in a storage place with an amount, as a container (Storage section
+        of the item). eLabFTW keeps 2 decimals and only accepts its own units (μL, mL, g...).
+        """
+        self.post_url(f"/items/{item_id}/containers/{storage_id}",
+                      json={"qty_stored": amount, "qty_unit": unit}).raise_for_status()
 
     def create_storage_unit(self, name: str, parent_id: int) -> int:
         """

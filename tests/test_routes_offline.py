@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import eln_common.add_bottle as add_bottle
 import eln_common.compound_import as compound_import
 import eln_common.pubchem as pubchem
 import eln_common.storage_places as storage_places
@@ -792,6 +793,166 @@ class TestStorageRoutes:
 
     def test_needs_an_api_key(self, client):
         assert client.post("/storage_units", json={"name": "Shelf 2", "parent_id": 16}).status_code == 401
+
+
+def _field(position, type_="text", **extra):
+    return {"type": type_, "value": "", "position": position, **extra}
+
+
+CHEMICAL_TEMPLATE = {"id": 2, "title": "Chemical Compound", "metadata": json.dumps({
+    "elabftw": {"display_main_text": True},
+    "extra_fields": {
+        "CAS": _field(1), "Location": _field(2, "select", options=["Front hood"]),
+        "Quantity": _field(3, "number"), "Received": _field(4, "date"), "Room": _field(5, "select"),
+        "State": _field(6, "select", options=["Solid", "Liquid", "Gas"]), "Purity": _field(7, "number", unit="%"),
+        "Lot number": _field(8), "Full name": _field(9), "SMILES": _field(10), "Manufacturer": _field(11, "select"),
+        "Molecular Weight": _field(12, "number"), "Hazards Link": _field(13), "Pubchem Link": _field(14),
+    }})}
+POLYMER_TEMPLATE = {"id": 3, "title": "Polymer", "metadata": json.dumps({"extra_fields": {
+    "Mw": _field(1, "number"), "Full name": _field(2), "SMILES": _field(3), "Location": _field(4),
+    "Quantity": _field(5, "number"), "Room": _field(6)}})}
+
+
+class FakeBottleRM:
+    """Stand-in for the calls create_bottle makes; records them in order."""
+
+    def __init__(self, fail=()):
+        self.calls = []
+        self.fail = set(fail)
+
+    def _record(self, name, *args):
+        self.calls.append((name, *args))
+        if name in self.fail:
+            raise RuntimeError(f"{name} refused")
+
+    def get_items_type(self, id):
+        templates = {2: CHEMICAL_TEMPLATE, 3: POLYMER_TEMPLATE}
+        if id not in templates:
+            raise RuntimeError("404")
+        return templates[id]
+
+    def get_compounds(self):
+        return [{"id": 77, "name": "Tetrahydrofuran", "smiles": "C1CCOC1"}, {"id": 72, "name": "Acetone"}]
+
+    def get_storage_units(self):
+        return STORAGE
+
+    def create_item_from_template(self, template):
+        self._record("create", template)
+        return 640
+
+    def change_item(self, id, body):
+        self._record("change", id, body)
+
+    def link_compound(self, item_id, compound_id):
+        self._record("link", item_id, compound_id)
+
+    def add_to_storage(self, item_id, storage_id, amount, unit):
+        self._record("storage", item_id, storage_id, amount, unit)
+
+    def upload_file(self, id, path):
+        self._record("upload", id, path)
+
+
+THF_BOTTLE = {"category": 2, "title": " Tetrahydrofuran ", "compounds": [77],
+              "storage": {"place_id": 6, "amount": 500, "unit": "mL"},
+              "fields": {"Manufacturer": "Sigma-Aldrich", "Lot number": "SHBM1234", "Purity": 99.9,
+                         "State": "Liquid"}}
+
+
+@pytest.fixture
+def fake_image(monkeypatch):
+    monkeypatch.setattr(add_bottle, "generate_image", lambda smiles: f"/tmp/{smiles}.png")
+
+
+class TestAddBottle:
+    def test_creates_links_places_and_draws_in_order(self, fake_image):
+        rm = FakeBottleRM()
+        assert add_bottle.create_bottle(rm, THF_BOTTLE) == {"id": 640, "problems": []}
+        assert [c[0] for c in rm.calls] == ["create", "change", "link", "storage", "upload"]
+        assert rm.calls[0] == ("create", 2)
+        assert rm.calls[2] == ("link", 640, 77)
+        assert rm.calls[3] == ("storage", 640, 6, 500, "mL")
+        assert rm.calls[4] == ("upload", 640, "/tmp/C1CCOC1.png")
+
+    def test_bottle_keeps_only_its_own_fields(self, fake_image):
+        rm = FakeBottleRM()
+        add_bottle.create_bottle(rm, THF_BOTTLE)
+        body = rm.calls[1][2]
+        assert body["title"] == "Tetrahydrofuran"
+        metadata = json.loads(body["metadata"])
+        assert sorted(metadata["extra_fields"]) == ["CAS", "Lot number", "Manufacturer", "Purity", "Received", "State"]
+        assert metadata["extra_fields"]["Purity"] == {**_field(7, "number", unit="%"), "value": "99.9"}
+        assert metadata["extra_fields"]["CAS"]["value"] == ""
+        assert metadata["elabftw"] == {"display_main_text": True}
+
+    def test_polymer_without_compounds_keeps_its_chemistry_fields(self, fake_image):
+        rm = FakeBottleRM()
+        add_bottle.create_bottle(rm, {"category": 3, "title": "P3HT", "fields": {"Mw": 50000, "SMILES": "*c1ccsc1*"},
+                                      "storage": {"place_id": 21, "amount": 2, "unit": "g"}})
+        metadata = json.loads(rm.calls[1][2]["metadata"])
+        assert sorted(metadata["extra_fields"]) == ["Full name", "Mw", "SMILES"]
+        assert [c[0] for c in rm.calls] == ["create", "change", "storage"]  # no link, no image
+
+    def test_micro_sign_becomes_greek_mu(self, fake_image):
+        rm = FakeBottleRM()
+        add_bottle.create_bottle(rm, {**THF_BOTTLE, "storage": {"place_id": 6, "amount": 250, "unit": "\u00b5L"}})
+        assert rm.calls[3][-1] == "\u03bcL"
+
+    @pytest.mark.parametrize("change, message", [
+        ({"category": None}, "Choose a category"),
+        ({"category": 99}, "no category #99"),
+        ({"title": "  "}, "needs a name"),
+        ({"compounds": [999]}, "no compound #999"),
+        ({"compounds": "77"}, "list of compound ids"),
+        ({"storage": None}, "where the bottle is kept"),
+        ({"storage": {"place_id": 999, "amount": 1, "unit": "g"}}, "no storage place #999"),
+        ({"storage": {"place_id": 6, "amount": -1, "unit": "g"}}, "0 or more"),
+        ({"storage": {"place_id": 6, "amount": "500", "unit": "mL"}}, "must be a number"),
+        ({"storage": {"place_id": 6, "amount": 5, "unit": "gallons"}}, "Unknown unit"),
+        ({"fields": {"Room": "3057"}}, "not a field"),
+        ({"fields": {"SMILES": "CCO"}}, "not a field"),  # lives in the compound now
+        ({"fields": {"Purity": [99]}}, "text or a number"),
+    ])
+    def test_bad_request_creates_nothing(self, fake_image, change, message):
+        rm = FakeBottleRM()
+        with pytest.raises(add_bottle.InvalidBottle, match=message):
+            add_bottle.create_bottle(rm, {**THF_BOTTLE, **change})
+        assert rm.calls == []
+
+    def test_later_failures_are_reported_and_the_rest_still_runs(self, fake_image):
+        rm = FakeBottleRM(fail={"link", "storage"})
+        result = add_bottle.create_bottle(rm, THF_BOTTLE)
+        assert result["id"] == 640
+        assert [p.split(" failed")[0] for p in result["problems"]] == [
+            "Linking compound #77", "Putting it in its storage place"]
+        assert [c[0] for c in rm.calls] == ["create", "change", "link", "storage", "upload"]
+
+    def test_units_offered_per_state_are_elabftw_units(self):
+        for units in add_bottle.UNITS_BY_STATE.values():
+            assert set(units) <= set(add_bottle.UNITS)
+
+
+class TestCreateResourceRoute:
+    def test_returns_201_with_id_url_and_problems(self, client, monkeypatch, fake_image):
+        monkeypatch.setattr(interface, "rm", lambda: FakeBottleRM())
+        resp = client.post("/resources", json=THF_BOTTLE)
+        assert resp.status_code == 201
+        assert resp.get_json()["id"] == 640 and resp.get_json()["problems"] == []
+        assert resp.get_json()["url"].endswith("640")
+
+    def test_bad_request_is_400(self, client, monkeypatch):
+        monkeypatch.setattr(interface, "rm", lambda: FakeBottleRM())
+        resp = client.post("/resources", json={**THF_BOTTLE, "title": ""})
+        assert resp.status_code == 400 and "needs a name" in resp.get_json()["error"]
+
+    def test_failed_create_is_500(self, client, monkeypatch):
+        monkeypatch.setattr(interface, "rm", lambda: FakeBottleRM(fail={"create"}))
+        resp = client.post("/resources", json=THF_BOTTLE)
+        assert resp.status_code == 500 and "not created" in resp.get_json()["error"]
+
+    def test_needs_an_api_key(self, client):
+        assert client.post("/resources", json=THF_BOTTLE).status_code == 401
 
 
 class TestCreateItemFromTemplate:

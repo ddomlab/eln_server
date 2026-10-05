@@ -5,6 +5,7 @@ from flask import Blueprint, current_app, jsonify, request, send_from_directory
 from flask_cors import cross_origin
 from requests import HTTPError
 
+import eln_common.add_bottle as add_bottle
 import eln_common.compound_import as compound_import
 import eln_common.config as config
 import eln_common.pubchem as pubchem
@@ -517,6 +518,30 @@ def add_option():
     except Exception as e:
         print("Error adding option to template:", e)
         return jsonify({"status": "error", "error": str(e)}), 400
+
+
+@interface_bp.route('/resources', methods=['POST'])
+@cross_origin(origins="http://localhost:8000")
+def create_resource():
+    """Adds a bottle linked to its compound(s) and put in a storage place:
+    {category, title, compounds: [ids], storage: {place_id, amount, unit}, fields: {name: value}}.
+    400 if the request is incomplete (nothing created). 201 with {id, url, problems}
+    once the bottle exists; problems lists any later step that failed."""
+    data = request.get_json(force=True, silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"status": "error", "error": "Expected a JSON object"}), 400
+    try:
+        rmn = rm()
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    try:
+        result = add_bottle.create_bottle(rmn, data)
+    except add_bottle.InvalidBottle as e:
+        return jsonify({"status": "error", "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "error": f"The bottle was not created: {e}"}), 500
+    result["url"] = config.item_web_url(result["id"])
+    return jsonify(result), 201
 
 
 @interface_bp.route('/add_resource', methods=['POST'])
