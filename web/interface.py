@@ -6,6 +6,7 @@ from flask_cors import cross_origin
 
 import eln_common.compound_import as compound_import
 import eln_common.config as config
+import eln_common.pubchem as pubchem
 from eln_common.fill_info import check_if_cas
 import web.label_creating as label_creating
 import web.print_handling as print_handling
@@ -104,11 +105,11 @@ def compounds_list():
 def _pubchem_preview(pc: dict) -> dict:
     """The PubChem fields the page shows before the user confirms an import."""
     return {
-        "cid": pc.get("cid"),
+        "cid": pc.get("pubchem_cid"),
         "name": pc.get("name") or "",
-        "cas": pc.get("cas") or "",
-        "formula": pc.get("molecularFormula") or "",
-        "molecular_weight": pc.get("molecularWeight"),
+        "cas": pc.get("cas_number") or "",
+        "formula": pc.get("molecular_formula") or "",
+        "molecular_weight": pc.get("molecular_weight"),
         "smiles": pc.get("smiles") or "",
     }
 
@@ -124,7 +125,10 @@ def compounds_pubchem():
         return jsonify({"status": "error", "error": "Give a CAS number or a name"}), 400
     try:
         rmn = rm()
-        found = rmn.pubchem_lookup(cas=cas or None, name=None if cas else name)[:5]
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    try:
+        found = pubchem.search(cas=cas or None, name=None if cas else name)
         if not found:
             return jsonify({"status": "error", "error": "No match in PubChem"}), 404
         compounds = rmn.get_all_compounds()
@@ -137,18 +141,16 @@ def compounds_pubchem():
                 "reason": match[1] if match else "",
             })
         return jsonify({"candidates": candidates})
-    except ValueError as e:
-        return jsonify({"status": "error", "error": str(e)}), 401
     except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 400
+        return jsonify({"status": "error", "error": str(e)}), 502
 
 
 @interface_bp.route('/compounds', methods=['POST'])
 @cross_origin(origins="http://localhost:8000")
 def create_compound():
-    """Creates a compound from PubChem: {cid, cas}. The details are fetched again here
-    by PubChem ID rather than trusted from the page. 409 with the existing compound
-    if the ELN already has it (even deleted)."""
+    """Creates a compound from PubChem: {cid, cas}. The details and hazard pictograms
+    are fetched again here from PubChem rather than trusted from the page. 409 with
+    the existing compound if the ELN already has it (even deleted)."""
     data = request.get_json(force=True, silent=True) or {}
     try:
         cid = int(data.get('cid'))
@@ -159,18 +161,22 @@ def create_compound():
         return jsonify({"status": "error", "error": f"'{cas}' is not a valid CAS number"}), 400
     try:
         rmn = rm()
-        found = rmn.pubchem_lookup(cid=cid)
+    except ValueError as e:
+        return jsonify({"status": "error", "error": str(e)}), 401
+    try:
+        found = pubchem.fetch(cid)
         if not found:
             return jsonify({"status": "error", "error": f"PubChem has no compound {cid}"}), 404
-        created = compound_import.create_compound_safely(rmn, found[0], cas)
-        return jsonify(compound_import.summary(created)), 201
+        created = compound_import.create_compound_safely(rmn, found, cas)
     except compound_import.CompoundClash as e:
         return jsonify({"status": "error", "error": f"Already in the ELN ({e.reason})",
                         "existing": compound_import.summary(e.existing)}), 409
-    except ValueError as e:
-        return jsonify({"status": "error", "error": str(e)}), 401
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
+    result = compound_import.summary(created)
+    # None: PubChem has no hazard classification, so the page asks the user to check the SDS
+    result["pictograms"] = found["pictograms"]
+    return jsonify(result), 201
 
 
 @interface_bp.route('/storage_tree', methods=['GET'])

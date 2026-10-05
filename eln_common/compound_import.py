@@ -6,14 +6,32 @@ matches any existing compound, including a deleted one, eLabFTW overwrites that
 compound and restores it if deleted, then returns its id. In the lab's ELN this
 replaced compound #80 (Hexitol) with Mannitol and brought back deleted #8.
 
-So: look the compound up in PubChem first (read only), refuse if it would clash
-with a compound we already have, create it with the CAS the user gave, and check
-that eLabFTW really made a new compound.
+So: look the compound up in PubChem first (read only, see eln_common.pubchem),
+refuse if it would clash with a compound we already have, create it with the CAS
+the user gave and its hazard flags, and check that eLabFTW really made a new compound.
 """
 
 from typing import Any
 
 from eln_common.resourcemanage import Resource_Manager
+
+# eLabFTW stores hazards as one yes/no field per GHS pictogram
+GHS_FLAGS = {
+    "GHS01": "is_explosive",
+    "GHS02": "is_flammable",
+    "GHS03": "is_oxidising",
+    "GHS04": "is_gas_under_pressure",
+    "GHS05": "is_corrosive",
+    "GHS06": "is_toxic",
+    "GHS07": "is_hazardous2health",
+    "GHS08": "is_serious_health_hazard",
+    "GHS09": "is_hazardous2env",
+}
+
+# the PubChem fields eLabFTW accepts when creating a compound (molecular_weight is
+# not accepted on create, so it is set right after)
+CREATE_FIELDS = ["name", "cas_number", "pubchem_cid", "inchi", "inchi_key", "smiles",
+                 "iupac_name", "molecular_formula"]
 
 
 class CompoundClash(Exception):
@@ -44,9 +62,9 @@ def find_existing(pubchem: dict[str, Any], cas: str | None,
     actually saved (the user's, else PubChem's; see build_compound_body).
     """
     keys = [
-        ("pubchem_cid", pubchem.get("cid"), "same PubChem ID"),
-        ("inchi_key", pubchem.get("inChIKey"), "same structure (InChIKey)"),
-        ("cas_number", cas or pubchem.get("cas"), "same CAS number"),
+        ("pubchem_cid", pubchem.get("pubchem_cid"), "same PubChem ID"),
+        ("inchi_key", pubchem.get("inchi_key"), "same structure (InChIKey)"),
+        ("cas_number", cas or pubchem.get("cas_number"), "same CAS number"),
     ]
     for field, value, reason in keys:
         if not value:
@@ -58,26 +76,15 @@ def find_existing(pubchem: dict[str, Any], cas: str | None,
 
 
 def build_compound_body(pubchem: dict[str, Any], cas: str | None) -> dict[str, Any]:
-    """The fields sent to eLabFTW, from a PubChem result. The user's CAS wins over PubChem's."""
-    body = {
-        "name": pubchem.get("name"),
-        "cas_number": cas or pubchem.get("cas"),
-        "pubchem_cid": pubchem.get("cid"),
-        "inchi": pubchem.get("inChI"),
-        "inchi_key": pubchem.get("inChIKey"),
-        "smiles": pubchem.get("smiles"),
-        "iupac_name": pubchem.get("iupacName"),
-        "molecular_formula": pubchem.get("molecularFormula"),
-        "is_corrosive": pubchem.get("isCorrosive"),
-        "is_explosive": pubchem.get("isExplosive"),
-        "is_flammable": pubchem.get("isFlammable"),
-        "is_gas_under_pressure": pubchem.get("isGasUnderPressure"),
-        "is_hazardous2env": pubchem.get("isHazardous2env"),
-        "is_hazardous2health": pubchem.get("isHazardous2health"),
-        "is_serious_health_hazard": pubchem.get("isSeriousHealthHazard"),
-        "is_oxidising": pubchem.get("isOxidising"),
-        "is_toxic": pubchem.get("isToxic"),
-    }
+    """
+    The fields sent to eLabFTW, from a PubChem result (eln_common.pubchem.fetch).
+    The user's CAS wins over PubChem's; each GHS pictogram turns its hazard flag on.
+    """
+    body = {field: pubchem.get(field) for field in CREATE_FIELDS}
+    body["cas_number"] = cas or pubchem.get("cas_number")
+    for pictogram in pubchem.get("pictograms") or []:
+        if pictogram in GHS_FLAGS:
+            body[GHS_FLAGS[pictogram]] = 1
     # leave out empty fields: an empty unique field can also trigger the upsert
     return {k: v for k, v in body.items() if v not in (None, "")}
 
@@ -103,7 +110,6 @@ def create_compound_safely(rm: Resource_Manager, pubchem: dict[str, Any],
         raise RuntimeError(
             f"eLabFTW saved this into existing compound #{new_id} instead of creating a new one; "
             "check that compound by hand")
-    if pubchem.get("molecularWeight"):
-        # not accepted on create, so it is set right after
-        rm.patch_compound(new_id, {"molecular_weight": pubchem["molecularWeight"]})
+    if pubchem.get("molecular_weight"):
+        rm.patch_compound(new_id, {"molecular_weight": pubchem["molecular_weight"]})
     return rm.get_compound(new_id)

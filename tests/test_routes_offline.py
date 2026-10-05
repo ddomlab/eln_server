@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import eln_common.compound_import as compound_import
+import eln_common.pubchem as pubchem
 import web.interface as interface
 import web.search_process as search_process
 from automations.labels.generate_label import LabelGenerator
@@ -394,17 +395,13 @@ class TestLookupLists:
 class FakeCompoundRM:
     """Stand-in for the compound calls of Resource_Manager."""
 
-    def __init__(self, compounds, pubchem=None, create_returns=200):
+    def __init__(self, compounds, create_returns=200):
         self.compounds = compounds
-        self.pubchem = pubchem or []
         self.create_returns = create_returns
         self.created, self.patched = [], []
 
     def get_all_compounds(self):
         return self.compounds
-
-    def pubchem_lookup(self, cas=None, name=None, cid=None):
-        return self.pubchem
 
     def create_compound(self, body):
         self.created.append(body)
@@ -419,8 +416,13 @@ class FakeCompoundRM:
                 "molecular_formula": body.get("molecular_formula"), "state": 1}
 
 
-MANNITOL = {"cid": 6251, "cas": "87-78-5", "name": "Mannitol", "inChIKey": "FBPFZTCFMRRESA-KVTDHHQDSA-N",
-            "molecularFormula": "C6H14O6", "molecularWeight": 182.17, "smiles": "C(...)O", "isFlammable": False}
+# what eln_common.pubchem.fetch returns
+MANNITOL = {"pubchem_cid": 6251, "cas_number": "87-78-5", "name": "Mannitol",
+            "inchi_key": "FBPFZTCFMRRESA-KVTDHHQDSA-N", "molecular_formula": "C6H14O6",
+            "molecular_weight": 182.17, "smiles": "C(...)O", "iupac_name": None, "pictograms": []}
+THF = {"pubchem_cid": 8028, "cas_number": "109-99-9", "name": "Tetrahydrofuran",
+       "inchi_key": "WYURNTSHIVDZCO-UHFFFAOYSA-N", "molecular_formula": "C4H8O",
+       "molecular_weight": 72.11, "smiles": "C1CCOC1", "pictograms": ["GHS02", "GHS07", "GHS08"]}
 HEXITOL_80 = {"id": 80, "name": "Hexitol", "cas_number": "87-78-5", "pubchem_cid": 453,
               "inchi_key": "FBPFZTCFMRRESA-UHFFFAOYSA-N", "state": 1}
 
@@ -436,8 +438,23 @@ class TestCompoundImport:
         assert created["id"] == 126 and created["cas_number"] == "69-65-8"
         assert rm.created[0]["pubchem_cid"] == 6251
         assert rm.patched == [(126, {"molecular_weight": 182.17})]
-        # empty/None fields are left out (False flags are kept)
-        assert "iupac_name" not in rm.created[0] and rm.created[0]["is_flammable"] is False
+        # empty fields are left out, and no pictograms means no hazard flags
+        assert "iupac_name" not in rm.created[0]
+        assert not any(k.startswith("is_") for k in rm.created[0])
+
+    def test_pictograms_turn_on_hazard_flags(self):
+        rm = FakeCompoundRM([], create_returns=127)
+        compound_import.create_compound_safely(rm, THF, None)
+        flags = {k: v for k, v in rm.created[0].items() if k.startswith("is_")}
+        assert flags == {"is_flammable": 1, "is_hazardous2health": 1, "is_serious_health_hazard": 1}
+        assert rm.created[0]["cas_number"] == "109-99-9"
+        assert "pictograms" not in rm.created[0]
+
+    def test_unknown_hazards_set_no_flags(self):
+        # pictograms None: PubChem has no GHS classification
+        rm = FakeCompoundRM([], create_returns=128)
+        compound_import.create_compound_safely(rm, {**THF, "pictograms": None}, None)
+        assert not any(k.startswith("is_") for k in rm.created[0])
 
     def test_same_pubchem_id_is_refused(self):
         existing = {**HEXITOL_80, "pubchem_cid": 6251}
@@ -450,7 +467,8 @@ class TestCompoundImport:
     def test_deleted_compound_with_same_cas_is_refused(self):
         # like #8 Phenylboronic acid: deleted, but it still holds its CAS
         deleted = {"id": 8, "name": "Phenylboronic acid", "cas_number": "98-80-6", "state": 3}
-        pc = {"cid": 66827, "cas": "98-80-6", "name": "Phenylboronic Acid", "inChIKey": "HXIT-X"}
+        pc = {"pubchem_cid": 66827, "cas_number": "98-80-6", "name": "Phenylboronic Acid",
+              "inchi_key": "HXIT-X"}
         rm = FakeCompoundRM([deleted])
         with pytest.raises(compound_import.CompoundClash) as e:
             compound_import.create_compound_safely(rm, pc, "98-80-6")
@@ -464,39 +482,152 @@ class TestCompoundImport:
         assert rm.patched == []
 
 
+class FakePubChem:
+    """Stand-in for requests in eln_common.pubchem: answers by URL, 404 for anything unknown."""
+
+    def __init__(self, answers):
+        self.answers = answers
+        self.calls = []
+
+    def _answer(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        for part, body in self.answers.items():
+            if part in url:
+                return SimpleNamespace(status_code=200, json=lambda body=body: body,
+                                       raise_for_status=lambda: None)
+        return SimpleNamespace(status_code=404)
+
+    get = post = _answer
+
+
+def ghs_answer(*sources):
+    """A PubChem GHS Classification record; each source is a list of pictogram codes."""
+    info = []
+    for codes in sources:
+        info.append({"Name": "Pictogram(s)", "Value": {"StringWithMarkup": [{"String": "", "Markup": [
+            {"URL": f"https://pubchem.ncbi.nlm.nih.gov/images/ghs/{c}.svg", "Type": "Icon"}
+            for c in codes]}]}})
+        info.append({"Name": "Signal", "Value": {"StringWithMarkup": [{"String": "Danger"}]}})
+    section = {"TOCHeading": "GHS Classification", "Information": info}
+    return {"Record": {"Section": [{"TOCHeading": "Safety and Hazards", "Section": [
+        {"TOCHeading": "Hazards Identification", "Section": [section]}]}]}}
+
+
+THF_PROPERTIES = {"PropertyTable": {"Properties": [{
+    "CID": 8028, "Title": "Tetrahydrofuran", "IUPACName": "oxolane", "MolecularFormula": "C4H8O",
+    "MolecularWeight": "72.11", "SMILES": "C1CCOC1", "InChI": "InChI=1S/C4H8O/c1-2-4-5-3-1/h1-4H2",
+    "InChIKey": "WYURNTSHIVDZCO-UHFFFAOYSA-N"}]}}
+THF_SYNONYMS = {"InformationList": {"Information": [
+    {"CID": 8028, "Synonym": ["tetrahydrofuran", "THF", "109-99-9", "oxolane", "1-23-4567"]}]}}
+
+
+class TestPubChem:
+    """eln_common.pubchem with PubChem's answers faked (shapes copied from real ones)."""
+
+    def test_pictograms_from_all_sources_are_combined(self, monkeypatch):
+        fake = FakePubChem({"/pug_view/data/compound/8028/": ghs_answer(["GHS02", "GHS07", "GHS08"], ["GHS07"])})
+        monkeypatch.setattr(pubchem, "requests", fake)
+        assert pubchem.ghs_pictograms(8028) == ["GHS02", "GHS07", "GHS08"]
+        assert fake.calls[0][1]["params"] == {"heading": "GHS Classification"}
+
+    def test_classified_without_pictograms_is_empty_list(self, monkeypatch):
+        # like glucose: PubChem has a GHS section but no source gives a pictogram
+        monkeypatch.setattr(pubchem, "requests", FakePubChem({"/pug_view/": ghs_answer()}))
+        assert pubchem.ghs_pictograms(5793) == []
+
+    def test_no_classification_is_none(self, monkeypatch):
+        monkeypatch.setattr(pubchem, "requests", FakePubChem({}))
+        assert pubchem.ghs_pictograms(24857) is None
+
+    def test_fetch_uses_elabftw_field_names(self, monkeypatch):
+        monkeypatch.setattr(pubchem, "requests", FakePubChem({
+            "/cid/8028/property/": THF_PROPERTIES,
+            "/cid/8028/synonyms/": THF_SYNONYMS,
+            "/pug_view/data/compound/8028/": ghs_answer(["GHS02", "GHS07", "GHS08"]),
+        }))
+        assert pubchem.fetch(8028) == {
+            "pubchem_cid": 8028, "name": "Tetrahydrofuran", "iupac_name": "oxolane",
+            "molecular_formula": "C4H8O", "molecular_weight": 72.11, "smiles": "C1CCOC1",
+            "inchi": "InChI=1S/C4H8O/c1-2-4-5-3-1/h1-4H2", "inchi_key": "WYURNTSHIVDZCO-UHFFFAOYSA-N",
+            "cas_number": "109-99-9", "pictograms": ["GHS02", "GHS07", "GHS08"],
+        }
+
+    def test_fetch_unknown_cid_is_none(self, monkeypatch):
+        monkeypatch.setattr(pubchem, "requests", FakePubChem({}))
+        assert pubchem.fetch(999999999) is None
+
+    def test_search_by_cas_keeps_the_cas_and_sends_it_as_form_data(self, monkeypatch):
+        fake = FakePubChem({"/compound/name/property/": THF_PROPERTIES})
+        monkeypatch.setattr(pubchem, "requests", fake)
+        found = pubchem.search(cas="109-99-9")
+        assert [(c["pubchem_cid"], c["cas_number"]) for c in found] == [(8028, "109-99-9")]
+        assert fake.calls[0][1]["data"] == {"name": "109-99-9"}
+        assert len(fake.calls) == 1  # no synonyms call needed
+
+    def test_search_by_name_finds_the_cas_in_synonyms(self, monkeypatch):
+        monkeypatch.setattr(pubchem, "requests", FakePubChem({
+            "/compound/name/property/": THF_PROPERTIES, "/cid/8028/synonyms/": THF_SYNONYMS}))
+        assert pubchem.search(name="THF")[0]["cas_number"] == "109-99-9"
+
+    def test_search_without_match_is_empty(self, monkeypatch):
+        monkeypatch.setattr(pubchem, "requests", FakePubChem({}))
+        assert pubchem.search(cas="1599466-85-9") == []
+
+
 class TestCompoundRoutes:
     def test_preview_marks_existing_compound(self, client, monkeypatch):
-        acetone = {"cid": 180, "cas": "67-64-1", "name": "Acetone", "molecularFormula": "C3H6O"}
+        acetone = {"pubchem_cid": 180, "cas_number": "67-64-1", "name": "Acetone", "molecular_formula": "C3H6O"}
         rm = FakeCompoundRM([{"id": 72, "name": "Acetone", "cas_number": "67-64-1", "pubchem_cid": 180,
-                              "molecular_formula": "C3H6O", "state": 1}], pubchem=[acetone])
+                              "molecular_formula": "C3H6O", "state": 1}])
         monkeypatch.setattr(interface, "rm", lambda: rm)
+        monkeypatch.setattr(pubchem, "search", lambda cas=None, name=None: [acetone])
         resp = client.get("/compounds/pubchem?cas=67-64-1")
         assert resp.status_code == 200
         candidate = resp.get_json()["candidates"][0]
-        assert candidate["pubchem"]["name"] == "Acetone"
+        assert candidate["pubchem"]["name"] == "Acetone" and candidate["pubchem"]["cid"] == 180
         assert candidate["existing"]["id"] == 72 and candidate["reason"] == "same PubChem ID"
 
     def test_preview_not_in_pubchem_is_404(self, client, monkeypatch):
-        monkeypatch.setattr(interface, "rm", lambda: FakeCompoundRM([], pubchem=[]))
+        monkeypatch.setattr(interface, "rm", lambda: FakeCompoundRM([]))
+        monkeypatch.setattr(pubchem, "search", lambda cas=None, name=None: [])
         assert client.get("/compounds/pubchem?cas=1599466-85-9").status_code == 404
 
     def test_preview_needs_cas_or_name(self, client):
         assert client.get("/compounds/pubchem").status_code == 400
 
     def test_create_returns_201_with_new_compound(self, client, monkeypatch):
-        rm = FakeCompoundRM([HEXITOL_80], pubchem=[MANNITOL], create_returns=126)
+        rm = FakeCompoundRM([HEXITOL_80], create_returns=126)
         monkeypatch.setattr(interface, "rm", lambda: rm)
+        monkeypatch.setattr(pubchem, "fetch", lambda cid: MANNITOL)
         resp = client.post("/compounds", json={"cid": 6251, "cas": "69-65-8"})
         assert resp.status_code == 201
         assert resp.get_json() == {"id": 126, "name": "Mannitol", "cas": "69-65-8",
-                                   "formula": "C6H14O6", "deleted": False}
+                                   "formula": "C6H14O6", "deleted": False, "pictograms": []}
+
+    def test_create_reports_pictograms(self, client, monkeypatch):
+        monkeypatch.setattr(interface, "rm", lambda: FakeCompoundRM([], create_returns=127))
+        monkeypatch.setattr(pubchem, "fetch", lambda cid: THF)
+        resp = client.post("/compounds", json={"cid": 8028})
+        assert resp.status_code == 201
+        assert resp.get_json()["pictograms"] == ["GHS02", "GHS07", "GHS08"]
+
+    def test_create_unknown_hazards_is_null(self, client, monkeypatch):
+        monkeypatch.setattr(interface, "rm", lambda: FakeCompoundRM([], create_returns=128))
+        monkeypatch.setattr(pubchem, "fetch", lambda cid: {**THF, "pictograms": None})
+        assert client.post("/compounds", json={"cid": 8028}).get_json()["pictograms"] is None
 
     def test_create_clash_is_409_with_existing(self, client, monkeypatch):
-        rm = FakeCompoundRM([{**HEXITOL_80, "pubchem_cid": 6251}], pubchem=[MANNITOL])
+        rm = FakeCompoundRM([{**HEXITOL_80, "pubchem_cid": 6251}])
         monkeypatch.setattr(interface, "rm", lambda: rm)
+        monkeypatch.setattr(pubchem, "fetch", lambda cid: MANNITOL)
         resp = client.post("/compounds", json={"cid": 6251, "cas": "69-65-8"})
         assert resp.status_code == 409
         assert resp.get_json()["existing"]["id"] == 80
+
+    def test_create_cid_not_in_pubchem_is_404(self, client, monkeypatch):
+        monkeypatch.setattr(interface, "rm", lambda: FakeCompoundRM([]))
+        monkeypatch.setattr(pubchem, "fetch", lambda cid: None)
+        assert client.post("/compounds", json={"cid": 999999999}).status_code == 404
 
     @pytest.mark.parametrize("body", [{}, {"cid": "abc"}, {"cid": 6251, "cas": "not-a-cas"}])
     def test_create_rejects_bad_input(self, client, body):

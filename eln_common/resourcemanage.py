@@ -147,30 +147,6 @@ class Resource_Manager:
         response.raise_for_status()
         return response.json()
 
-    def pubchem_lookup(self, cas: str | None = None, name: str | None = None,
-                       cid: int | None = None) -> list[dict[str, Any]]:
-        """
-        Looks a compound up in PubChem through eLabFTW, without saving anything.
-            :return: Matching PubChem compounds as dictionaries with {cid, cas, name,
-                inChI, inChIKey, smiles, iupacName, molecularFormula, molecularWeight,
-                isFlammable, ...}; an empty list when PubChem has no match.
-        """
-        if cid is not None:
-            query = {"search_pubchem_cid": cid}
-        elif cas:
-            query = {"search_pubchem_cas": cas}
-        elif name:
-            query = {"search_pubchem_name": name}
-        else:
-            raise ValueError("Give a CAS number, a name or a PubChem CID")
-        response = requests.get(config.URL + "/compounds", headers=self.header, params=query)
-        # eLabFTW answers 500 with PubChem's "PUGREST.NotFound" when there is no match
-        if response.status_code == 500 and "NotFound" in response.text:
-            return []
-        response.raise_for_status()
-        found = response.json()
-        return found if isinstance(found, list) else [found]
-
     def create_compound(self, body: dict[str, Any]) -> int:
         """
         Creates a compound from the given fields. Prefer compound_import.create_compound_safely():
