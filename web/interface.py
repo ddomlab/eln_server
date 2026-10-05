@@ -1,7 +1,8 @@
+import io
 import json
 from datetime import datetime
 
-from flask import Blueprint, current_app, jsonify, request, send_from_directory
+from flask import Blueprint, current_app, jsonify, request, send_file, send_from_directory
 from flask_cors import cross_origin
 from requests import HTTPError
 
@@ -403,17 +404,27 @@ def search():
 @interface_bp.route('/print', methods=['POST'])
 @cross_origin(origins="http://localhost:8000")
 def print_registry():
-    data = request.get_json()
+    """The labels for {id: [resource ids]} as one PDF, for the page to open and print."""
+    data = request.get_json(force=True, silent=True) or {}
     ids = data.get('id', [])
-    if len(ids) == 0:
-        return jsonify({"error": "No IDs provided"}), 400
     if not isinstance(ids, list):
         return jsonify({"error": "Expected a list of IDs"}), 400
-
-    print_handling.add_item(rm(), [int(x) for x in ids])
+    if len(ids) == 0:
+        return jsonify({"error": "No IDs provided"}), 400
+    try:
+        ids = [int(x) for x in ids]
+    except (TypeError, ValueError):
+        return jsonify({"error": "IDs must be numbers"}), 400
+    try:
+        rmn = rm()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+    try:
+        pdf = print_handling.labels_pdf(rmn, ids)
+    except Exception as e:
+        return jsonify({"error": f"Making the labels failed: {e}"}), 500
     print("Printing items with IDs:", ids)
-
-    return send_from_directory(current_app.static_folder, "print.pdf")  # type: ignore
+    return send_file(io.BytesIO(pdf), mimetype="application/pdf", download_name="labels.pdf")
 
 
 @interface_bp.route('/associate', methods=['POST'])

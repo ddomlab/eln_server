@@ -5,6 +5,7 @@
 //   POST /storage_units  -> add a new place (the server refuses near-duplicate names)
 //   POST /resources      -> create the bottle(s)
 //   GET /compounds/pubchem, POST /compounds -> find a missing compound in PubChem and add it
+//   POST /print          -> the new bottles' labels as a PDF
 // The user's API key travels by itself in the apiKey cookie.
 
 // what the page knows, filled once when it opens
@@ -649,8 +650,41 @@ function showCreated(data) {
     kind: problems.length ? "" : "ok",
     links,
     items: problems.map((p) => `⚠ ${p} (finish this in eLabFTW)`),
-    buttons: [{ text: "Add another bottle", onClick: () => window.location.reload() }],
+    buttons: [
+      { text: bottles.length === 1 ? "Print label" : `Print ${bottles.length} labels`,
+        onClick: () => printLabels(bottles.map((b) => b.id)) },
+      { text: "Add another bottle", onClick: () => window.location.reload(), secondary: true },
+    ],
   });
+}
+
+// POST /print and show the PDF in a new tab, to print on the label printer
+async function printLabels(ids) {
+  // browsers block tabs opened after a wait, so open it now (empty) and fill it in below
+  const tab = window.open("", "_blank");
+  try {
+    const response = await fetch("/print", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: ids }),
+    });
+    if (!response.ok) throw new Error((await response.json()).error || `status ${response.status}`);
+    const pdfUrl = URL.createObjectURL(await response.blob());
+    if (tab) {
+      tab.location = pdfUrl;
+    } else {
+      // pop-ups are blocked: offer a link instead
+      const link = Object.assign(document.createElement("a"), {
+        href: pdfUrl, target: "_blank", download: "labels.pdf", textContent: "Open the labels (PDF)",
+      });
+      const line = Object.assign(document.createElement("div"), { className: "hint" });
+      line.append("Your browser blocked the new tab: ", link);
+      document.getElementById("create-message").append(line);
+    }
+  } catch (e) {
+    tab?.close();
+    alert(`Printing the labels failed: ${e.message}. Print them later from the start page (scan or type the numbers, then "print").`);
+  }
 }
 
 // ---------- start ----------

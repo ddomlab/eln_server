@@ -332,6 +332,29 @@ class TestLabelGenerator:
         gen.add_item(393)
         assert gen.records[0]["received_date"] == ""
 
+    def test_pdf_is_made_in_memory(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        rm = FakeRM(item={"id": 624, "title": "Hydrogen peroxide 30%", "category": 2,
+                          "metadata": json.dumps({"extra_fields": {"Received": {"value": "2026-10-05"}}})})
+        gen = LabelGenerator(rm)  # type: ignore[arg-type]
+        gen.add_item(624)
+        assert gen.pdf().startswith(b"%PDF")
+        assert gen.records == [] and list(tmp_path.iterdir()) == []
+
+    def test_print_route_returns_pdf(self, client, monkeypatch):
+        rm = FakeRM(item={"id": 624, "title": "t", "category": 2, "metadata": None})
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        resp = client.post("/print", json={"id": [624, "625"]})
+        assert resp.status_code == 200 and resp.mimetype == "application/pdf"
+        assert resp.data.startswith(b"%PDF")
+
+    @pytest.mark.parametrize("body", [{"id": "624"}, {"id": ["abc"]}, {}])
+    def test_print_bad_ids_are_400(self, client, body):
+        assert client.post("/print", json=body).status_code == 400
+
+    def test_print_needs_an_api_key(self, client):
+        assert client.post("/print", json={"id": [624]}).status_code == 401
+
     def test_null_metadata_leaves_date_blank(self):
         rm = FakeRM(item={"id": 393, "title": "t", "category": 2, "metadata": None})
         gen = LabelGenerator(rm)  # type: ignore[arg-type]
