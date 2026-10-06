@@ -285,8 +285,8 @@
     <div id="registry">
       <div>
         <nav class="tabs">
-          <a class="tab active" href="/">Registry</a>
-          <a class="tab" href="/add_bottle_interface">Add resources</a>
+          <a class="tab" data-tab="registry" href="/?tab=registry">Registry</a>
+          <a class="tab" data-tab="resources" href="/?tab=resources">Resources</a>
         </nav>
         <ul id="registryList"></ul>
       </div>
@@ -354,6 +354,8 @@
           "API key not found. Please click the gear icon in the bottom-right corner and enter your API key on the settings page."
         );
       }
+      // every QR command; the Registry tab shows them all, the Resources tab only
+      // RESOURCE_COMMANDS (a future Experiments tab would get its own set)
       const captions = [
         //"Voice Mode",
         "Clear",
@@ -912,16 +914,47 @@
         });
       }
      
-      captions.forEach((caption) => {
-        const container = document.createElement("div");
-        container.className = "qrItem";
-        qrGrid.appendChild(container);
-        renderQRCode(container, caption);
+      const RESOURCE_COMMANDS = new Set([
+        "Add resource",
+        "Change Location",
+        "Mark Open",
+        "Tested",
+        "Mark Empty",
+        "Print",
+        "Open Page",
+        "Associate with Experiment",
+      ]);
+      let currentTab =
+        new URLSearchParams(window.location.search).get("tab") === "resources" ? "resources" : "registry";
 
-        if (caption === "Change Location") {
-          container.addEventListener("click", openLocationPopup);
-        }
+      // draw the QR commands of the current tab (clicking one runs it, like scanning it)
+      function drawCommands() {
+        qrGrid.innerHTML = "";
+        captions
+          .filter((caption) => currentTab === "registry" || RESOURCE_COMMANDS.has(caption))
+          .forEach((caption) => {
+            const container = document.createElement("div");
+            container.className = "qrItem";
+            qrGrid.appendChild(container);
+            renderQRCode(container, caption);
+          });
+        document.querySelectorAll(".tabs a").forEach((tab) => {
+          tab.classList.toggle("active", tab.dataset.tab === currentTab);
+        });
+        updateModeIndicator(); // re-highlights Batch when it is shown
+      }
+
+      // switching tabs only redraws the commands; the scanned list stays
+      document.querySelectorAll(".tabs a").forEach((tab) => {
+        tab.addEventListener("click", (event) => {
+          event.preventDefault();
+          currentTab = tab.dataset.tab;
+          window.history.replaceState(null, "", tab.href);
+          drawCommands();
+          if (focusOnInput) inputProcessor.focus();
+        });
       });
+      drawCommands();
 
       popupClose.addEventListener("click", () => {
         popup.style.display = "none";
