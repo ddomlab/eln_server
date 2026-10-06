@@ -356,6 +356,7 @@
         "Add resource",
         "Change Location",
         "Mark Open",
+        "Tested",
         "Mark Empty",
         "Print",
         "Open Page",
@@ -560,22 +561,16 @@
             });
         } else if (val === "mark open") {
           const ids = [...registryList.children].map((li) => li.textContent);
-          fetch("/mark_open", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ id: ids }),
-          }).then(async (response) => {
-            if (!response.ok) {
-              const errorData = await response.json();
-              error(errorData.error);
-              // error();
-              // throw new Error("Failed, " + response.statusText );
-            } else {
-              success();
-            }
+          postScanned("/mark_open", ids, (data) => {
+            const due = data.checks.map((c) => `#${c.id} test due ${c.due}`);
+            return ["Marked open", ...due].join(" · ");
           });
+        } else if (val === "tested") {
+          // the bottle's routine check (e.g. peroxide test) was done today
+          const ids = [...registryList.children].map((li) => li.textContent);
+          postScanned("/mark_tested", ids, (data) =>
+            ["Tested", ...data.tested.map((t) => `#${t.id} next test due ${t.next_due}`)].join(" · ")
+          );
         } else if (val === "mark empty") {
           const ids = [...registryList.children].map((li) => li.textContent);
           fetch("/mark_empty", {
@@ -619,6 +614,26 @@
         if (focusOnInput) {
           inputProcessor.focus();
         }
+      }
+
+      // POST an action for the bottles in the list; show its problems, or the success text
+      function postScanned(url, ids, successText) {
+        if (ids.length === 0) {
+          error("Scan the bottles first");
+          return;
+        }
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: ids }),
+        })
+          .then(async (response) => {
+            const data = await response.json();
+            if (!response.ok) error(data.error || "Failed");
+            else if (data.problems.length) error(data.problems.join(" · "));
+            else success(successText(data));
+          })
+          .catch(() => error("Failed"));
       }
 
       // POST /move_to_storage: move every bottle in the list to the scanned place

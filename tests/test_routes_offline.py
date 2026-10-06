@@ -4,6 +4,7 @@ None of these need an eLN API key or network access.
 """
 
 import json
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,7 @@ import pytest
 import eln_common.add_bottle as add_bottle
 import eln_common.bottle_actions as bottle_actions
 import eln_common.bottle_tags as bottle_tags
+import eln_common.routine_checks as routine_checks
 import eln_common.compound_import as compound_import
 import eln_common.pubchem as pubchem
 import eln_common.storage_places as storage_places
@@ -1104,6 +1106,7 @@ class FakeScannerRM:
         self.bottles = bottles
         self.fail_move = set(fail_move)
         self.moves, self.changes, self.amounts = [], [], []
+        self.steps = {}
 
     def get_storage_units(self):
         return STORAGE
@@ -1125,6 +1128,42 @@ class FakeScannerRM:
 
     def set_container_amount(self, item_id, container_id, amount):
         self.amounts.append((item_id, container_id, amount))
+
+    def get_steps(self, item_id):
+        return self.steps.get(item_id, [])
+
+    def add_step(self, item_id, body):
+        step = {"id": 100 + sum(len(v) for v in self.steps.values()), "body": body, "finished": 0, "deadline": None}
+        self.steps.setdefault(item_id, []).append(step)
+        return step["id"]
+
+    def set_step(self, item_id, step_id, fields):
+        next(s for s in self.steps[item_id] if s["id"] == step_id).update(fields)
+
+    def finish_step(self, item_id, step_id):
+        step = next(s for s in self.steps[item_id] if s["id"] == step_id)
+        step.update(finished=1, deadline=None)
+
+
+class FakeBottleItemsRM(FakeScannerRM):
+    """FakeScannerRM whose bottles also have tags and an Opened field, as get_item returns them."""
+
+    def __init__(self, items):
+        super().__init__({i: [{"id": 234}] for i in items})
+        self.items = items
+        self.steps = {}
+
+    def get_item(self, id):
+        if id not in self.items:
+            raise RuntimeError("404 Not Found")
+        tags, opened = self.items[id]
+        return {"id": id, "tags": tags, "containers": self.bottles[id],
+                "metadata": json.dumps({"extra_fields": {"Opened": {"value": opened}}})}
+
+    def change_item(self, id, body):
+        super().change_item(id, body)
+        if "metadata" in body:  # remember the Opened date the action wrote
+            self.items[id] = (self.items[id][0], json.loads(body["metadata"])["extra_fields"]["Opened"]["value"])
 
 
 class TestMoveBottles:
@@ -1182,6 +1221,87 @@ class TestMarkEmpty:
         resp = client.post("/mark_empty", json={"id": [624]})
         assert resp.status_code == 200 and resp.get_json()["emptied"] == [624]
         assert rm.amounts == [(624, 234, 0)]
+
+
+class TestRoutineChecks:
+    def test_rules_file_covers_the_peroxide_tags(self):
+        assert {r["tag"]: r["every_months"] for r in routine_checks.rules()} == {
+            "Peroxide former: A": 3, "Peroxide former: B": 6, "Peroxide former: C": 6, "Peroxide former: D": 12}
+        # the tags match the ones bottle_tags gives new bottles
+        assert {f"Peroxide former: {c}" for c in "ABCD"} == {r["tag"] for r in routine_checks.rules()}
+
+    def test_rule_for_reads_elabftw_tags(self):
+        assert routine_checks.rule_for("Flammable|Peroxide former: B")["every_months"] == 6
+        assert routine_checks.rule_for("Flammable") is None and routine_checks.rule_for(None) is None
+
+    @pytest.mark.parametrize("start, months, due", [
+        (date(2026, 10, 6), 6, date(2027, 4, 6)),
+        (date(2026, 8, 31), 6, date(2027, 2, 28)),   # no 31 February
+        (date(2026, 11, 30), 3, date(2027, 2, 28)),
+        (date(2027, 12, 15), 12, date(2028, 12, 15)),
+    ])
+    def test_add_months(self, start, months, due):
+        assert routine_checks.add_months(start, months) == due
+
+
+TODAY = date(2026, 10, 6)
+
+
+class TestBottleLifecycle:
+    """Mark Open adds the check step, Tested ticks it and adds the next, Mark Empty closes it."""
+
+    def test_open_tested_empty(self):
+        rm = FakeBottleItemsRM({522: ("Flammable|Peroxide former: B", "")})
+        opened = bottle_actions.mark_open(rm, [522], open_status=4, today=TODAY)
+        assert opened == {"opened": [522], "checks": [
+            {"id": 522, "step": "Test for peroxides (class B)", "due": "2027-04-06"}], "problems": []}
+        [step] = rm.steps[522]
+        assert step["body"] == "Test for peroxides (class B), due 2027-04-06"
+        assert step["deadline"] == "2027-04-06 09:00:00"
+
+        tested = bottle_actions.mark_tested(rm, [522], today=date(2027, 4, 2))
+        assert tested == {"tested": [{"id": 522, "step": "Test for peroxides (class B)",
+                                      "next_due": "2027-10-02"}], "problems": []}
+        assert [(s["finished"], s["body"]) for s in rm.steps[522]] == [
+            (1, "Test for peroxides (class B), due 2027-04-06"),
+            (0, "Test for peroxides (class B), due 2027-10-02")]
+
+        bottle_actions.mark_empty(rm, [522], empty_status=5, today=date(2027, 7, 15))
+        assert [(s["finished"], s["body"]) for s in rm.steps[522]][-1] == (
+            1, "Test for peroxides (class B), due 2027-10-02: closed, bottle marked empty on 2027-07-15 (no test needed)")
+        assert routine_checks.open_check_steps(rm.steps[522]) == []
+
+    def test_open_without_routine_check_adds_no_step(self):
+        rm = FakeBottleItemsRM({72: ("Flammable", "")})
+        result = bottle_actions.mark_open(rm, [72], open_status=4, today=TODAY)
+        assert result["opened"] == [72] and result["checks"] == [] and rm.steps == {}
+
+    def test_already_open_is_reported_and_not_changed(self):
+        rm = FakeBottleItemsRM({522: ("Peroxide former: B", "2026-09-01")})
+        result = bottle_actions.mark_open(rm, [522], open_status=4, today=TODAY)
+        assert result["opened"] == [] and "already marked open on 2026-09-01" in result["problems"][0]
+        assert rm.changes == [] and rm.steps == {}
+
+    def test_tested_needs_a_check_and_an_open_bottle(self):
+        rm = FakeBottleItemsRM({72: ("Flammable", "2026-09-01"), 522: ("Peroxide former: B", "")})
+        result = bottle_actions.mark_tested(rm, [72, 522, 999], today=TODAY)
+        assert result["tested"] == [] and rm.steps == {}
+        assert "no routine check" in result["problems"][0]
+        assert "not marked open yet" in result["problems"][1]
+        assert result["problems"][2].startswith("#999")
+
+    def test_empty_bottle_without_steps_is_fine(self):
+        rm = FakeBottleItemsRM({72: ("Flammable", "2026-09-01")})
+        assert bottle_actions.mark_empty(rm, [72], empty_status=5, today=TODAY) == {"emptied": [72], "problems": []}
+
+    def test_routes(self, client, monkeypatch):
+        rm = FakeBottleItemsRM({522: ("Peroxide former: B", "")})
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        resp = client.post("/mark_open", json={"id": [522]})
+        assert resp.status_code == 200 and resp.get_json()["checks"][0]["id"] == 522
+        resp = client.post("/mark_tested", json={"id": [522]})
+        assert resp.status_code == 200 and resp.get_json()["tested"][0]["id"] == 522
+        assert client.post("/mark_tested", json={"id": []}).status_code == 400
 
 
 class TestCreateItemFromTemplate:

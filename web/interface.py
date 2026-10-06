@@ -426,31 +426,6 @@ def associate():
     return ("Success", 200, {"exp_name": rmn.get_experiment(exp_id)["title"]})
 
 
-@interface_bp.route('/mark_open', methods=['POST'])
-@cross_origin(origins="http://localhost:8000")
-def mark_open():
-    data = request.get_json()
-    ids = data.get('id', [])
-    if len(ids) == 0:
-        return jsonify({"error": "No IDs provided"}), 400
-    rmn = rm()
-    if not isinstance(ids, list):
-        return jsonify({"error": "Expected a list of IDs"}), 400
-    for id in ids:
-        body = rmn.get_item(id)
-        metadata = json.loads(body["metadata"] or "{}")
-        opened = metadata.get("extra_fields", {}).get("Opened")
-        if opened is None:
-            return jsonify({"error": f"Item {id} has no 'Opened' extra field. "
-                            "Its category's template must define an extra field named "
-                            "'Opened' (exact spelling) for it to be marked as opened."}), 400
-        if opened.get("value", "") != "":
-            return jsonify({"error": f"Item {id} already marked as opened on {opened['value']}"}), 400
-        opened["value"] = datetime.now().isoformat()[:10]
-        rmn.change_item(id, {"metadata": json.dumps(metadata), "status": config.setting("status_open", 4)})
-    return "Success", 200
-
-
 def _id_list(data: dict) -> list[int]:
     """The resource ids in a scanner request {id: [...]}.
         :raises ValueError: with a message for a 400 answer."""
@@ -463,6 +438,40 @@ def _id_list(data: dict) -> list[int]:
         return [int(x) for x in ids]
     except (TypeError, ValueError):
         raise ValueError("IDs must be numbers")
+
+
+@interface_bp.route('/mark_open', methods=['POST'])
+@cross_origin(origins="http://localhost:8000")
+def mark_open():
+    """Marks the scanned bottles as opened today: {id: [ids]}. Bottles with a routine check
+    (e.g. a peroxide former) get their first check step. 200 with {opened, checks, problems}."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        ids = _id_list(data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    try:
+        rmn = rm()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+    return jsonify(bottle_actions.mark_open(rmn, ids, config.setting("status_open", 4)))
+
+
+@interface_bp.route('/mark_tested', methods=['POST'])
+@cross_origin(origins="http://localhost:8000")
+def mark_tested():
+    """Records that the scanned bottles' routine check was done today: {id: [ids]}. Ticks the
+    open check step and adds the next one. 200 with {tested, problems}."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        ids = _id_list(data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    try:
+        rmn = rm()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+    return jsonify(bottle_actions.mark_tested(rmn, ids))
 
 
 @interface_bp.route('/move_to_storage', methods=['POST'])

@@ -1,0 +1,23 @@
+# Routine checks on opened bottles, kept as steps on each bottle's ELN page.
+#
+# A bottle with one of these tags gets the step when it is marked open in the
+# Resource Manager app, due `every_months` later. Scanning it with "Tested" ticks
+# the step and adds the next one; "Mark Empty" closes it. The tags come from the
+# bottle's compound when the bottle is added (see eln_common/bottle_tags.py).
+#
+# Intervals: common lab-safety practice for peroxide formers (test after opening).
+# Change them here; the app reads this file when it starts.
+
+checks:
+  - tag: "Peroxide former: A"
+    step: "Test for peroxides (class A)"
+    every_months: 3
+  - tag: "Peroxide former: B"
+    step: "Test for peroxides (class B)"
+    every_months: 6
+  - tag: "Peroxide former: C"
+    step: "Test for peroxides (class C)"
+    every_months: 6
+  - tag: "Peroxide former: D"
+    step: "Test for peroxides (class D)"
+    every_months: 12

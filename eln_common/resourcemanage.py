@@ -184,6 +184,29 @@ class Resource_Manager:
         self.patch_url(f"/items/{item_id}/containers/{container_id}",
                        json={"qty_stored": amount}).raise_for_status()
 
+    def get_steps(self, item_id: int) -> list[dict[str, Any]]:
+        """An item's steps: [{id, body, finished, finished_time, deadline, ...}]."""
+        response = self.get_url(f"/items/{item_id}/steps")
+        response.raise_for_status()
+        return response.json()
+
+    def add_step(self, item_id: int, body: str) -> int:
+        """Adds a step (a to-do line) to an item.
+            :return: The new step's id."""
+        response = self.post_url(f"/items/{item_id}/steps", json={"body": body})
+        response.raise_for_status()
+        return int(str(response.headers["Location"]).rstrip("/").split("/").pop())
+
+    def set_step(self, item_id: int, step_id: int, fields: dict[str, Any]) -> None:
+        """Changes a step's body and/or deadline ("YYYY-MM-DD HH:MM:SS"). Note: eLabFTW
+        refuses an "action" key here, unlike finish_step."""
+        self.patch_url(f"/items/{item_id}/steps/{step_id}", json=fields).raise_for_status()
+
+    def finish_step(self, item_id: int, step_id: int) -> None:
+        """Ticks a step: eLabFTW records the time and clears its deadline. It toggles, so
+        only call it on a step that is not ticked yet."""
+        self.patch_url(f"/items/{item_id}/steps/{step_id}", json={"action": "finish"}).raise_for_status()
+
     def create_storage_unit(self, name: str, parent_id: int) -> int:
         """
         Creates a storage place inside another one. Prefer storage_places.create_place_safely(),

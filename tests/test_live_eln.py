@@ -107,10 +107,10 @@ class TestMutations:
         )
         assert int(updated["status"]) == STATUS_OPEN
 
-        # marking an already-opened item must fail
+        # marking an already-opened item is reported, not changed
         resp = client.post("/mark_open", json={"id": [TEST_ITEM_ID]}, headers=auth_headers)
-        assert resp.status_code == 400
-        assert "already marked" in resp.get_json()["error"]
+        assert resp.status_code == 200
+        assert "already marked open" in resp.get_json()["problems"][0]
 
     def test_move_to_storage_and_back(self, client, auth_headers, live_rm):
         containers = get_item_raw(live_rm).get("containers") or []
