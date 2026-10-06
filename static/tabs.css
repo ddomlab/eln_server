@@ -1,4 +1,4 @@
-/* The Toolkit's page tabs, at the top of the left column of every page.
+/* The ELN Toolkit's page tabs, at the top of the left column of every page.
    To add a page (e.g. Experiments), add one <a class="tab"> to each page's <nav class="tabs">. */
 .tabs {
   display: flex;
