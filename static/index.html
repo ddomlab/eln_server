@@ -97,7 +97,8 @@
         padding: 14px;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+        /* scroll when the buttons don't fit (small screens, more commands) */
+        overflow-y: auto;
       }
 
       #pageTitle {
