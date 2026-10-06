@@ -4,7 +4,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Resource Manager</title>
+    <title>Toolkit</title>
+    <link rel="stylesheet" href="static/tabs.css" />
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap");
 
@@ -283,13 +284,16 @@
     </a>
     <div id="registry">
       <div>
-        <h2>Registry</h2>
+        <nav class="tabs">
+          <a class="tab active" href="/">Registry</a>
+          <a class="tab" href="/add_bottle_interface">Add resources</a>
+        </nav>
         <ul id="registryList"></ul>
       </div>
       <div id="modeIndicator">Mode: Single</div>
     </div>
     <div id="main">
-      <h1 id="pageTitle">Resource Manager</h1>
+      <h1 id="pageTitle">Toolkit</h1>
       <input
         type="text"
         id="inputProcessor"

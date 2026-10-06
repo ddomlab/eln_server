@@ -3,13 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Add a bottle</title>
+  <title>Add resources · Toolkit</title>
+  <link rel="stylesheet" href="static/tabs.css" />
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
 
     * { font-family: "Roboto Mono", monospace; box-sizing: border-box; }
 
-    body { background: #fdfdfd; margin: 0; padding: 2em 1em; color: #111; }
+    body { background: #fdfdfd; margin: 0; color: #111; display: flex; height: 100vh; }
+
+    /* left column with the Toolkit's tabs, like the Registry page */
+    #sidebar {
+      width: 145px; flex-shrink: 0; padding: 10px; background: #fff;
+      border-right: 3px solid #000; box-shadow: 3px 0 6px rgba(0, 0, 0, 0.2);
+    }
+    #content { flex-grow: 1; overflow-y: auto; padding: 2em 1em; }
 
     .form-wrapper {
       margin: 0 auto; max-width: 680px; background: #fff;
@@ -50,7 +58,6 @@
 
     pre { background: #f4f4f4; border: 2px solid #ccc; padding: 0.8em; overflow-x: auto; font-size: 0.8em; }
 
-    .back { display: inline-block; margin-bottom: 1em; color: #111; }
 
     /* small forms inside a section, like "add a new place" */
     .subform { border: 2px dashed #999; padding: 0.8em 1em; margin-top: 0.5em; }
@@ -83,8 +90,14 @@
   </style>
 </head>
 <body>
+  <div id="sidebar">
+    <nav class="tabs">
+      <a class="tab" href="/">Registry</a>
+      <a class="tab active" href="/add_bottle_interface">Add resources</a>
+    </nav>
+  </div>
+  <div id="content">
   <div class="form-wrapper">
-    <a class="back" href="/">← Back</a>
     <h2>Add a bottle</h2>
 
     <!-- shown when the server answers 401 (no or wrong API key) -->
@@ -178,6 +191,7 @@
     </form>
   </div>
 
+  </div>
   <script src="static/add_bottle.js"></script>
 </body>
 </html>
