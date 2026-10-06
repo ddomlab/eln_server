@@ -3,7 +3,7 @@
 Unified server for the DDOM Lab's custom ELN (eLabFTW) tooling. Consolidates the
 former `eln_web_backend`, `eln_packages_backend`, and `eln_packages_common`
 repositories into one Flask application: the web interface, the eLab API
-wrapper, and the automations (autofill, label generation, RDKit images,
+wrapper, and the automations (label generation, RDKit images,
 peroxide-former Slack reminders) all live here and run through the server.
 
 To install an eLabFTW instance, follow the eLabFTW installation instructions at https://doc.elabftw.net/docs/category/installation/ 
@@ -21,7 +21,6 @@ To install an eLabFTW instance, follow the eLabFTW installation instructions at 
   - Generating custom labels
   - Performing 'batch actions' (above actions taken on multiple items at once)
 - ELN Automations
-  - Autofilling Resource information from CAS (hazards, molecular weight, RDKit image, SMILES, etc.)
   - Reminders to check peroxide formers with formatted list of peroxide formers
 
 
@@ -30,8 +29,8 @@ To install an eLabFTW instance, follow the eLabFTW installation instructions at 
 | Directory | Contents |
 |---|---|
 | `app.py` | Flask entry point; registers blueprints (gunicorn target `app:app`) |
-| `eln_common/` | eLab API wrapper (`Resource_Manager`, `config`, `fill_info`) — formerly `eln_packages_common` |
-| `automations/` | autofill, label generation, RDKit images, peroxide checks, Slack bot — formerly `eln_packages_backend` |
+| `eln_common/` | eLab API wrapper (`Resource_Manager`, `config`, `pubchem`, `compound_import`, `add_bottle`...) — formerly `eln_packages_common` |
+| `automations/` | label generation, RDKit images, peroxide checks, Slack bot — formerly `eln_packages_backend` |
 | `web/` | Flask blueprints: `interface` (the UI routes) and `automation_api` (`/api/...`) |
 | `static/` | Web UI pages and label templates |
 | `scripts/` | One-off maintenance scripts (inventory dumps, compound linking) |
@@ -42,7 +41,7 @@ To install an eLabFTW instance, follow the eLabFTW installation instructions at 
 
 Server settings live in `config.yaml` at the repo root (relative paths resolve
 from there): the instance URLs (`eln_url`, `eln_web_url` — required),
-`printer_path`, `auto_upload_labels`, and the team-specific status/category
+`printer_path`, and the team-specific status/category
 IDs (`status_open`, `status_empty`, `chemical_categories`,
 `label_date_categories`). The ID settings can also be set from dropdowns at
 `/settings_interface`, which reads your team's actual lists from the eLabFTW
@@ -70,21 +69,15 @@ The Slack bot token is also server-side: set `slack_bot_token` in `secrets.yaml`
 
 ## Automation API
 
-- `POST /api/autofill` — PubChem info fill, RDKit image (and, legacy, label upload).
-  Optional JSON body: `{"id": 123}` for one item, or
-  `{"start": 0, "end": null, "size": 5, "force": false, "info": true, "label": true, "image": true}`
-  (defaults shown, autofills the 5 most recently modified Resources with IDs between 0 and `null` (infinity)). Errors are reported to the Slack error channel, like the old `main.py`.
 - `POST /api/check_peroxides` — checks the inventory against the class A–D
   peroxide-former lists and sends Slack reminders. Returns match counts.
 
-The `/add_resource` UI route also triggers an autofill of the new item in
-the background, so info/images appear immediately after creation.
-
 Label printing (`/print`) generates the PDF on the fly from the item's current
-data. Attaching a `label.pdf` upload to each resource during autofill is a
-legacy feature, disabled by default; set `auto_upload_labels: true` in
-`config.yaml` to re-enable it (the `label` flag in the autofill body is
-ignored unless it is set).
+data.
+
+There is no autofill any more (removed 2026-10): chemical details live on the
+compound each resource is linked to, instead of being copied from PubChem into
+every resource's fields.
 
 ## Running the server
 
@@ -141,9 +134,8 @@ The PTH tracker is a separate project (https://github.com/ddomlab/pth_analysis).
 
 The systemd timers (in `client/`) execute the automated actions. They can be automatically installed with the `install.sh` script in `client/`
 
-This installs `eln-autofill.timer` (every 10 minutes — adjust `OnCalendar` to
-taste, including excluding backup windows) and `eln-peroxide-check.timer`
-(May 1 and Nov 1). The key is stored at `/etc/eln-client/api_key`; the server
+This installs `eln-peroxide-check.timer` (May 1 and Nov 1), and removes the old
+`eln-autofill.timer` from hosts that still have it. The key is stored at `/etc/eln-client/api_key`; the server
 URL is set via `ELN_SERVER_URL` in the `.service` files.
 Pass it at install time to skip editing them; with the Docker deploy on the same
 host that's the local port:

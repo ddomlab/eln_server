@@ -44,14 +44,10 @@ class Resource_Manager:
         """
         url = config.URL + url
         return requests.patch(url, headers=self.header, json=json)
-    def create_item(self, template: int, body_dict: dict[str, Any]) -> int:
+    def create_item_from_template(self, template: int) -> int:
         """
-        Creates an item in the ELN from the given resource template, then applies body_dict.
-        Starting from the template gives the item the template's category and default
-        status, and still works when the team enforces template use.
-            :param int template: The ID of the resource template (items_types) to create from.
-                Template IDs are team-specific; list them with get_items_types().
-            :param dict body_dict: The body of the item to be created.
+        Creates an item from the given resource template, with the template's category,
+        default status, body and extra fields, and nothing else.
             :return: The ID of the newly created item.
         """
         response = self.itemsapi.post_item_with_http_info( # type: ignore
@@ -61,10 +57,7 @@ class Resource_Manager:
         )
         locationHeaderInResponse: str = str(response[2].get("Location")) #type: ignore
         print(f"The newly created item is here: {locationHeaderInResponse}")
-        item_id:int = int(locationHeaderInResponse.split("/").pop())
-        # the template already set the right category; callers pass the template ID there
-        self.change_item(item_id, {k: v for k, v in body_dict.items() if k != "category"})
-        return item_id
+        return int(locationHeaderInResponse.split("/").pop())
 
     def change_item(self, id: int, body_dict: dict[str, Any]) -> None:
         """
@@ -113,34 +106,123 @@ class Resource_Manager:
         except (config.elabapi_python.rest.ApiException, requests.HTTPError):
             raise ValueError("Experiment or item does not exist")
         self.post_url(url)
-    def find_and_create_compound(self, CAS:str):
-        """
-        Finds a compound in the ELN with the given CAS number and creates it if it does not exist.
-            :param str CAS: The CAS number of the compound to be found.
-            :return: The ID of the compound.
-        """
-        self.post_url("/compounds/", json={"action":"duplicate", "cas":CAS})
-    def associate_compound(self, comp_id:int,res_id:int):
-        """
-        Associates a compound with the given CAS number to an item in the ELN with the given ID.
-            :param str CAS: The CAS number of the compound to be associated.
-            :param int id: The ID of the item to be associated with.
-        """
-        self.post_url("/items/" + str(res_id) + "/compounds/" + str(comp_id))
-    
     def get_compounds(self):
         """
-        Gets a list of compounds in the ELN as dictionaries.
+        Gets every (non-deleted) compound in the ELN as dictionaries.
             :return: A list of dictionaries containing the compounds.
         """
-        return self.get_url("/compounds?limit=1000").json()
+        response = self.get_url("/compounds?limit=9999")
+        response.raise_for_status()
+        return response.json()
+
+    def get_all_compounds(self) -> list[dict[str, Any]]:
+        """
+        Gets every compound including archived and deleted ones (state 1, 2, 3).
+        Deleted compounds still hold their CAS, PubChem ID and InChIKey, so they
+        matter when checking whether a new compound would clash.
+        """
+        response = self.get_url("/compounds?limit=9999&state=1,2,3")
+        response.raise_for_status()
+        return response.json()
+
+    def create_compound(self, body: dict[str, Any]) -> int:
+        """
+        Creates a compound from the given fields. Prefer compound_import.create_compound_safely():
+        if any unique field (CAS, InChIKey, PubChem ID...) matches an existing or deleted
+        compound, eLabFTW overwrites that compound and returns its id instead.
+            :return: The id eLabFTW reports for the saved compound.
+        """
+        response = self.post_url("/compounds", json=body)
+        response.raise_for_status()
+        return int(str(response.headers["Location"]).rstrip("/").split("/").pop())
+
+    def patch_compound(self, id: int, body: dict[str, Any]) -> None:
+        """Changes fields of the compound with the given ID."""
+        self.patch_url("/compounds/" + str(id), json=body).raise_for_status()
+
+    def get_compound(self, id: int) -> dict[str, Any]:
+        """Gets one compound as a dictionary."""
+        response = self.get_url("/compounds/" + str(id))
+        response.raise_for_status()
+        return response.json()
+
+    def get_storage_units(self) -> list[dict[str, Any]]:
+        """
+        Gets every storage place (room, cabinet, ...) in the ELN.
+            :return: A list of dictionaries with {id, name, parent_id, full_path, ...};
+                parent_id is None for top-level places (rooms).
+        """
+        response = self.get_url("/storage_units?hierarchy=true")
+        response.raise_for_status()
+        return response.json()
+
+    def link_compound(self, item_id: int, compound_id: int) -> None:
+        """Links a compound to an item (it then shows under the item's Compounds)."""
+        # eLabFTW needs a JSON body here, even an empty one
+        self.post_url(f"/items/{item_id}/compounds_links/{compound_id}", json={}).raise_for_status()
+
+    def add_to_storage(self, item_id: int, storage_id: int, amount: float, unit: str) -> None:
+        """
+        Puts an item in a storage place with an amount, as a container (Storage section
+        of the item). eLabFTW keeps 2 decimals and only accepts its own units (μL, mL, g...).
+        """
+        self.post_url(f"/items/{item_id}/containers/{storage_id}",
+                      json={"qty_stored": amount, "qty_unit": unit}).raise_for_status()
+
+    def move_container(self, item_id: int, container_id: int, storage_id: int) -> None:
+        """
+        Moves one of an item's storage entries to another storage place; eLabFTW records
+        the move in the item's history. Note the two different ids: container_id is the
+        entry's own id (item["containers"][i]["id"]), storage_id the destination place's.
+        """
+        self.patch_url(f"/items/{item_id}/containers/{container_id}",
+                       json={"storage_id": storage_id}).raise_for_status()
+
+    def set_container_amount(self, item_id: int, container_id: int, amount: float) -> None:
+        """Changes the amount in one of an item's storage entries (container_id is the entry's
+        own id); eLabFTW records the change in the item's history."""
+        self.patch_url(f"/items/{item_id}/containers/{container_id}",
+                       json={"qty_stored": amount}).raise_for_status()
+
+    def get_steps(self, item_id: int) -> list[dict[str, Any]]:
+        """An item's steps: [{id, body, finished, finished_time, deadline, ...}]."""
+        response = self.get_url(f"/items/{item_id}/steps")
+        response.raise_for_status()
+        return response.json()
+
+    def add_step(self, item_id: int, body: str) -> int:
+        """Adds a step (a to-do line) to an item.
+            :return: The new step's id."""
+        response = self.post_url(f"/items/{item_id}/steps", json={"body": body})
+        response.raise_for_status()
+        return int(str(response.headers["Location"]).rstrip("/").split("/").pop())
+
+    def set_step(self, item_id: int, step_id: int, fields: dict[str, Any]) -> None:
+        """Changes a step's body and/or deadline ("YYYY-MM-DD HH:MM:SS"). Note: eLabFTW
+        refuses an "action" key here, unlike finish_step."""
+        self.patch_url(f"/items/{item_id}/steps/{step_id}", json=fields).raise_for_status()
+
+    def finish_step(self, item_id: int, step_id: int) -> None:
+        """Ticks a step: eLabFTW records the time and clears its deadline. It toggles, so
+        only call it on a step that is not ticked yet."""
+        self.patch_url(f"/items/{item_id}/steps/{step_id}", json={"action": "finish"}).raise_for_status()
+
+    def create_storage_unit(self, name: str, parent_id: int) -> int:
+        """
+        Creates a storage place inside another one. Prefer storage_places.create_place_safely(),
+        which refuses duplicate names (eLabFTW accepts any name).
+            :return: The new place's id.
+        """
+        response = self.post_url("/storage_units", json={"name": name, "parent_id": parent_id})
+        response.raise_for_status()
+        return int(str(response.headers["Location"]).rstrip("/").split("/").pop())
+
     def add_tag(self, item_id: int, tag: str):
         """
         Adds a tag to an item in the ELN with the given item ID and tag. Take care to use correct capitalization/whitespace
             :param int item_id: The ID of the item to be tagged.
             :param str tag: The tag to be added to the item."""
-        url = config.URL + "/items/" + str(item_id) + "/tags/"
-        requests.post(url, headers=self.header, json={"tag": tag})
+        self.post_url(f"/items/{item_id}/tags", json={"tag": tag}).raise_for_status()
 
     def delete_upload(
         self, id:int, upload_id:int, resource_type:str="items"
@@ -271,6 +353,18 @@ class Resource_Manager:
             :return: A list of dictionaries containing the matching items.
         """
         response = self.get_url("/items?q=" + requests.utils.quote(query))
+        response.raise_for_status()
+        return response.json()
+
+    def search_items_by_field(self, field: str, value: str) -> list[dict[str, Any]]:
+        """
+        Current resources (not archived or deleted) whose extra field contains the value,
+        ignoring case. Matches are "contains", so callers compare the value exactly.
+        """
+        # double quotes would end the search term early
+        query = f'extrafield:"{field}":"{value.replace(chr(34), "")}"'
+        response = requests.get(config.URL + "/items", headers=self.header,
+                                params={"q": query, "limit": 100})
         response.raise_for_status()
         return response.json()
 

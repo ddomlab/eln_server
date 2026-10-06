@@ -6,7 +6,6 @@ Makes an authenticated POST to one of the server's automation endpoints. Meant
 to be run by the systemd timers in this directory (replacing the old cron jobs),
 but can be run by hand:
 
-    eln_timer_client.py autofill
     eln_timer_client.py check_peroxides
 
 Uses only the Python standard library, so it needs no environment to run.
@@ -25,8 +24,6 @@ SERVER_URL = os.environ.get("ELN_SERVER_URL", "http://localhost:5000").rstrip("/
 API_KEY_FILE = os.environ.get("ELN_API_KEY_FILE", "/etc/eln-client/api_key")
 
 TASKS = {
-    # autofill the 5 most recently created items
-    "autofill": {"size": 5, "info": True, "label": False, "image": True},
     "check_peroxides": {},
 }
 

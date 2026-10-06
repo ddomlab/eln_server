@@ -4,7 +4,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Inventory Manager</title>
+    <title>ELN Toolkit</title>
+    <link rel="stylesheet" href="static/tabs.css" />
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap");
 
@@ -97,7 +98,14 @@
         padding: 14px;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+        /* scroll when the buttons don't fit (small screens, more commands) */
+        overflow-y: auto;
+      }
+
+      #pageTitle {
+        margin: 0 0 10px 0;
+        font-size: 1.6em;
+        text-align: center;
       }
 
       #inputProcessor {
@@ -276,12 +284,16 @@
     </a>
     <div id="registry">
       <div>
-        <h2>Registry</h2>
+        <nav class="tabs">
+          <a class="tab" data-tab="registry" href="/?tab=registry">Registry</a>
+          <a class="tab" data-tab="resources" href="/?tab=resources">Resources</a>
+        </nav>
         <ul id="registryList"></ul>
       </div>
       <div id="modeIndicator">Mode: Single</div>
     </div>
     <div id="main">
+      <h1 id="pageTitle">ELN Toolkit</h1>
       <input
         type="text"
         id="inputProcessor"
@@ -292,7 +304,7 @@
     </div>
 
     <div id="popup">
-      <h3>Locations</h3>
+      <h3>Storage places: scan one to move the bottles there</h3>
       <div id="popupGrid"></div>
       <div id="popupClose">Close</div>
     </div>
@@ -342,13 +354,16 @@
           "API key not found. Please click the gear icon in the bottom-right corner and enter your API key on the settings page."
         );
       }
+      // every QR command; the Registry tab shows them all, the Resources tab only
+      // RESOURCE_COMMANDS (a future Experiments tab would get its own set)
       const captions = [
         //"Voice Mode",
         "Clear",
         "Batch",
         "Add resource",
-        // "Change Location",
+        "Change Location",
         "Mark Open",
+        "Tested",
         "Mark Empty",
         "Print",
         "Open Page",
@@ -510,7 +525,7 @@
           clearRegistry();
           success();
         } else if (val === "add resource") {
-          window.location.href = "/add_resource_interface";
+          window.location.href = "/add_bottle_interface";
         } else if (val === "custom label") {
           window.location.href = "/label_gen_interface";
         }
@@ -553,22 +568,16 @@
             });
         } else if (val === "mark open") {
           const ids = [...registryList.children].map((li) => li.textContent);
-          fetch("/mark_open", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ id: ids }),
-          }).then(async (response) => {
-            if (!response.ok) {
-              const errorData = await response.json();
-              error(errorData.error);
-              // error();
-              // throw new Error("Failed, " + response.statusText );
-            } else {
-              success();
-            }
+          postScanned("/mark_open", ids, (data) => {
+            const due = data.checks.map((c) => `#${c.id} test due ${c.due}`);
+            return ["Marked open", ...due].join(" · ");
           });
+        } else if (val === "tested") {
+          // the bottle's routine check (e.g. peroxide test) was done today
+          const ids = [...registryList.children].map((li) => li.textContent);
+          postScanned("/mark_tested", ids, (data) =>
+            ["Tested", ...data.tested.map((t) => `#${t.id} next test due ${t.next_due}`)].join(" · ")
+          );
         } else if (val === "mark empty") {
           const ids = [...registryList.children].map((li) => li.textContent);
           fetch("/mark_empty", {
@@ -577,14 +586,16 @@
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ id: ids }),
-          }).then((response) => {
+          }).then(async (response) => {
+            const data = await response.json();
             if (!response.ok) {
-              error();
-              throw new Error("Failed");
+              error(data.error || "Failed");
+            } else if (data.problems.length) {
+              error(data.problems.join(" · "));
             } else {
-              success();
+              success("Marked empty (amount set to 0)");
             }
-          });
+          }).catch(() => error("Failed"));
         } else if (val === "associate with experiment") {
           const ids = [...registryList.children].map((li) => li.textContent);
           if (ids.length === 0) {
@@ -596,59 +607,10 @@
           const ids = [...registryList.children].map((li) => li.textContent);
           return;
         } else if (val === "change location") {
-          inputProcessor.value = "";
-          return;
-        } else if (val.includes("location=")) {
-          const loc = value.split("LOCATION=")[1];
-          const ids = [...registryList.children].map((li) => li.textContent);
-
-          // console.log("Changing location to:", location);
-          fetch("/change_location", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ id: ids , location : loc }),
-          })
-            .then((response) => {
-              if (!response.ok) {
-                error();
-                throw new Error("Failed to change location");
-              } else {
-                success("Location changed to: " + loc);
-                popup.style.display = "none";
-                if (focusOnInput) inputProcessor.focus();
-
-              }
-            })
-            .catch((err) => {
-              console.error(err);
-            });
-        }
-        else if (val.includes("subloc=")) {
-          const loc = value.split("SUBLOC=")[1];
-          const ids = [...registryList.children].map((li) => li.textContent);
-          fetch("/change_sublocation", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ id: ids , sublocation : loc }),
-          })
-            .then((response) => {
-              if (!response.ok) {
-                error();
-                throw new Error("Failed to change sublocation");
-              } else {
-                success("Sublocation comment added: " + loc);
-                popup.style.display = "none";
-                if (focusOnInput) inputProcessor.focus();
-
-              }
-            })
-            .catch((err) => {
-              console.error(err);
-            });
+          openLocationPopup();
+        } else if (val.startsWith("storage=")) {
+          // a storage place's QR code: move the bottles in the list there
+          moveToStorage(parseInt(val.split("storage=")[1], 10));
         }else if (!isNaN(val) && val !== "") {
           addToRegistry(val);
         } else {
@@ -659,6 +621,83 @@
         if (focusOnInput) {
           inputProcessor.focus();
         }
+      }
+
+      // POST an action for the bottles in the list; show its problems, or the success text
+      function postScanned(url, ids, successText) {
+        if (ids.length === 0) {
+          error("Scan the bottles first");
+          return;
+        }
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: ids }),
+        })
+          .then(async (response) => {
+            const data = await response.json();
+            if (!response.ok) error(data.error || "Failed");
+            else if (data.problems.length) error(data.problems.join(" · "));
+            else success(successText(data));
+          })
+          .catch(() => error("Failed"));
+      }
+
+      // POST /move_to_storage: move every bottle in the list to the scanned place
+      function moveToStorage(storageId) {
+        const ids = [...registryList.children].map((li) => li.textContent);
+        if (ids.length === 0 || !storageId) {
+          error("Scan the bottles first, then the place");
+          return;
+        }
+        fetch("/move_to_storage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: ids, storage_id: storageId }),
+        })
+          .then(async (response) => {
+            const data = await response.json();
+            if (!response.ok) {
+              error(data.error || "Moving failed");
+            } else if (data.problems.length) {
+              error(data.problems.join(" · "));
+            } else {
+              success("Moved to " + data.place.split(" > ").join(" › "));
+              popup.style.display = "none";
+              if (focusOnInput) inputProcessor.focus();
+            }
+          })
+          .catch((err) => {
+            console.error(err);
+            error("Moving failed");
+          });
+      }
+
+      // the "Change Location" popup: one QR code per storage place (STORAGE=<id>)
+      function openLocationPopup() {
+        fetch("/storage_tree")
+          .then((response) => response.json())
+          .then((places) => {
+            if (!Array.isArray(places)) {
+              error(places.error || "Could not load the storage places");
+              return;
+            }
+            popup.style.display = "block";
+            popupGrid.innerHTML = "";
+            places
+              .filter((p) => p.parent_id !== null) // rooms hold places, not bottles
+              .sort((a, b) => a.full_path.localeCompare(b.full_path))
+              .forEach((place) => {
+                const container = document.createElement("div");
+                container.className = "qrItem";
+                popupGrid.appendChild(container);
+                renderQRCode(container, place.full_path.split(" > ").join(" › "), `STORAGE=${place.id}`);
+              });
+          })
+          .catch((err) => {
+            console.error("Error loading storage places:", err);
+            error("Could not load the storage places");
+          });
       }
 
       function showExperimentPrompt() {
@@ -875,53 +914,47 @@
         });
       }
      
-      captions.forEach((caption) => {
-        const container = document.createElement("div");
-        container.className = "qrItem";
-        qrGrid.appendChild(container);
-        renderQRCode(container, caption);
+      const RESOURCE_COMMANDS = new Set([
+        "Add resource",
+        "Change Location",
+        "Mark Open",
+        "Tested",
+        "Mark Empty",
+        "Print",
+        "Open Page",
+        "Associate with Experiment",
+      ]);
+      let currentTab =
+        new URLSearchParams(window.location.search).get("tab") === "resources" ? "resources" : "registry";
 
-        if (caption === "Change Location") {
-          container.addEventListener("click", () => {
-            // console.log("Clicked Change Location");
-
-            fetch("/get_locations", {
-              method: "GET",
-              headers: {
-                "Content-Type": "application/json",
-              },
-            })
-              .then((response) => {
-                // console.log("Received response:", response);
-                return response.json();
-              })
-              .then((data) => {
-                // console.log("Parsed JSON data:", data);
-
-                const extraCaptions = data;
-                if (!Array.isArray(extraCaptions)) {
-                  console.error("Expected array but got:", extraCaptions);
-                  return;
-                }
-
-                // console.log("Extra captions:", extraCaptions);
-
-                popup.style.display = "block";
-                popupGrid.innerHTML = "";
-
-                extraCaptions.forEach((extra, index) => {
-                  const extraContainer = document.createElement("div");
-                  extraContainer.className = "qrItem";
-                  popupGrid.appendChild(extraContainer);
-                  renderQRCode(extraContainer, extra, `LOCATION=${extra}`);
-                });
-              })
-              .catch((error) => {
-                console.error("Error fetching extra captions:", error);
-              });
+      // draw the QR commands of the current tab (clicking one runs it, like scanning it)
+      function drawCommands() {
+        qrGrid.innerHTML = "";
+        captions
+          .filter((caption) => currentTab === "registry" || RESOURCE_COMMANDS.has(caption))
+          .forEach((caption) => {
+            const container = document.createElement("div");
+            container.className = "qrItem";
+            qrGrid.appendChild(container);
+            renderQRCode(container, caption);
           });
-        }
+        document.querySelectorAll(".tabs a").forEach((tab) => {
+          tab.classList.toggle("active", tab.dataset.tab === currentTab);
+        });
+        updateModeIndicator(); // re-highlights Batch when it is shown
+      }
+
+      // switching tabs only redraws the commands; the scanned list stays
+      document.querySelectorAll(".tabs a").forEach((tab) => {
+        tab.addEventListener("click", (event) => {
+          event.preventDefault();
+          currentTab = tab.dataset.tab;
+          window.history.replaceState(null, "", tab.href);
+          drawCommands();
+          if (focusOnInput) inputProcessor.focus();
+        });
       });
+      drawCommands();
 
       popupClose.addEventListener("click", () => {
         popup.style.display = "none";

@@ -14,14 +14,13 @@ KEY_FILE=/etc/eln-client/api_key
 
 install -d /opt/eln-client
 install -m 755 "$SCRIPT_DIR/eln_timer_client.py" /opt/eln-client/
-install -m 644 "$SCRIPT_DIR"/eln-autofill.{service,timer} /etc/systemd/system/
 install -m 644 "$SCRIPT_DIR"/eln-peroxide-check.{service,timer} /etc/systemd/system/
 
 # optional: point the timers at a server other than the default in the .service files,
 # e.g. sudo ELN_SERVER_URL=http://127.0.0.1:5001 ./install.sh (the Docker deploy's local port)
 if [[ -n ${ELN_SERVER_URL:-} ]]; then
     sed -i "s|^Environment=ELN_SERVER_URL=.*|Environment=ELN_SERVER_URL=$ELN_SERVER_URL|" \
-        /etc/systemd/system/eln-autofill.service /etc/systemd/system/eln-peroxide-check.service
+        /etc/systemd/system/eln-peroxide-check.service
     echo "Timers will call $ELN_SERVER_URL"
 fi
 
@@ -42,12 +41,20 @@ if [[ ! -f $KEY_FILE ]]; then
     echo "Wrote $KEY_FILE"
 fi
 
+# autofill was removed (compounds now hold the chemical details): take its old
+# timer off hosts that still have it, so it stops calling a route that is gone
+if [[ -f /etc/systemd/system/eln-autofill.timer ]]; then
+    systemctl disable --now eln-autofill.timer || true
+    rm -f /etc/systemd/system/eln-autofill.service /etc/systemd/system/eln-autofill.timer
+    echo "Removed the old eln-autofill timer"
+fi
+
 systemctl daemon-reload
-systemctl enable --now eln-autofill.timer eln-peroxide-check.timer
+systemctl enable --now eln-peroxide-check.timer
 
 echo
 echo "Installed. Check status with:"
 echo "  systemctl list-timers 'eln-*'"
 echo "To point at a non-local server, edit ELN_SERVER_URL in"
-echo "  /etc/systemd/system/eln-autofill.service and eln-peroxide-check.service,"
+echo "  /etc/systemd/system/eln-peroxide-check.service,"
 echo "then: systemctl daemon-reload"

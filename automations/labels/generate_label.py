@@ -37,6 +37,13 @@ class LabelGenerator:
             )
         )
 
+    def pdf(self) -> bytes:
+        """The labels added so far as PDF data, without writing a file (so two people
+        printing at the same time can't get each other's labels)."""
+        data = self.label_writer.write_labels(self.records, target=None)
+        self.records = []
+        return data
+
     # generates pdf for all labels in records
     def write_labels(self, target: str | None = None):
         self.label_writer.write_labels(self.records, target=target or self.path)

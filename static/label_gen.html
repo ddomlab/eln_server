@@ -277,7 +277,7 @@
         hideResourceDropdown();
         const type = qrContentTypeSelect.value;
         if (type === "Location") {
-          qrContentLabel.textContent = "Location";
+          qrContentLabel.textContent = "Storage place (pick from the list)";
           codeContentInput.setAttribute("list", "location-options");
           loadLocations();
         } else {
@@ -291,25 +291,29 @@
         applyQrContentType();
       });
 
-      // ── location suggestions (free text allowed) ────────────────────────
+      // ── storage places for "Location" QR codes (the QR holds STORAGE=<id>) ──
       let locationsLoaded = false;
       async function loadLocations() {
         if (locationsLoaded) return;
         locationsLoaded = true;
         try {
-          const r = await fetch("/get_locations");
+          const r = await fetch("/storage_tree");
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const locs = await r.json();
+          const places = await r.json();
           const datalist = document.getElementById("location-options");
           datalist.innerHTML = "";
-          (Array.isArray(locs) ? locs : []).forEach((loc) => {
-            const opt = document.createElement("option");
-            opt.value = loc;
-            datalist.appendChild(opt);
-          });
+          (Array.isArray(places) ? places : [])
+            .filter((p) => p.parent_id !== null)
+            .sort((a, b) => a.full_path.localeCompare(b.full_path))
+            .forEach((place) => {
+              const opt = document.createElement("option");
+              opt.value = place.id; // the label's QR content
+              opt.label = place.full_path.split(" > ").join(" › ");
+              datalist.appendChild(opt);
+            });
         } catch (e) {
           locationsLoaded = false; // allow a retry next time
-          console.error("Failed to load locations:", e);
+          console.error("Failed to load storage places:", e);
         }
       }
 
