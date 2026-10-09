@@ -118,9 +118,11 @@ def compounds_list():
 @interface_bp.route('/bottle_form', methods=['GET'])
 @cross_origin(origins="http://localhost:8000")
 def bottle_form():
-    """What the add-bottle page needs to draw its form: each bottle category with the
-    compounds to pick (compound_slots) and the extra fields that stay on the bottle
-    (in template order), plus eLabFTW's units and the units offered per State."""
+    """What the add-resource page needs to draw its form: each category with its kind,
+    the compounds to pick (compound_slots) and the extra fields the form asks for (in
+    template order), plus eLabFTW's units and the units offered per State.
+    A "bottle" category goes through storage, amount and compounds; an "instrument" one
+    (no State field, e.g. Instrument) only needs a name and its template's fields."""
     try:
         rmn = rm()
     except ValueError as e:
@@ -132,11 +134,13 @@ def bottle_form():
             extra_fields = metadata.get("extra_fields", {})
             slots = add_bottle.compound_slots(extra_fields)
             if slots is None:
-                continue
-            fields = add_bottle.bottle_fields(extra_fields, bool(slots))
+                kind, slots, fields = "instrument", [], extra_fields
+            else:
+                kind, fields = "bottle", add_bottle.bottle_fields(extra_fields, bool(slots))
             categories.append({
                 "id": t["id"],
                 "title": t["title"],
+                "kind": kind,
                 "compound_slots": slots,
                 "fields": [{"name": name, **field} for name, field in
                            sorted(fields.items(), key=lambda kv: kv[1].get("position", 0))],

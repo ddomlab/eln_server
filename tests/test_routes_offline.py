@@ -1057,17 +1057,21 @@ class TestBottleForm:
     def test_compound_slots(self, names, slots):
         assert add_bottle.compound_slots({n: {} for n in names}) == slots
 
-    def test_route_lists_bottle_categories_with_their_own_fields(self, client, monkeypatch):
-        instrument = {"id": 1, "title": "Instrument", "metadata": json.dumps({"extra_fields": {"Room": _field(1)}})}
-        templates = {1: instrument, 2: CHEMICAL_TEMPLATE, 3: POLYMER_TEMPLATE}
+    def test_route_lists_categories_with_their_kind_and_own_fields(self, client, monkeypatch):
+        instrument = {"id": 1, "title": "Instrument", "metadata": json.dumps({"extra_fields": {
+            "Maintenance interval": _field(2), "Room": _field(1)}})}
+        templates = {1: instrument, 2: CHEMICAL_TEMPLATE}
         fake_rm = SimpleNamespace(get_items_types=lambda: [{"id": i, "title": t["title"]} for i, t in templates.items()],
                                   get_items_type=lambda id: templates[id])
         monkeypatch.setattr(interface, "rm", lambda: fake_rm)
         resp = client.get("/bottle_form")
         assert resp.status_code == 200
         categories = resp.get_json()["categories"]
-        assert [(c["id"], c["compound_slots"]) for c in categories] == [(2, ["Chemical"])]  # polymer has no State
-        names = [f["name"] for f in categories[0]["fields"]]
+        assert [(c["id"], c["kind"], c["compound_slots"]) for c in categories] == [
+            (1, "instrument", []), (2, "bottle", ["Chemical"])]
+        # an instrument category keeps all its fields (Room too), in template order
+        assert [f["name"] for f in categories[0]["fields"]] == ["Room", "Maintenance interval"]
+        names = [f["name"] for f in categories[1]["fields"]]
         assert names == ["CAS", "Received", "State", "Purity", "Lot number", "Manufacturer"]  # template order
         assert resp.get_json()["units_by_state"]["Liquid"] == ["\u03bcL", "mL", "L"]
 

@@ -52,20 +52,39 @@ function currentCategory() {
   return formInfo.categories.find((c) => c.id === id);
 }
 
+// an instrument category (kind from /bottle_form): no compounds, storage place or amount
+function isInstrument() {
+  return currentCategory()?.kind === "instrument";
+}
+
 function fillCategories() {
   const select = document.getElementById("category");
   select.innerHTML = "";
-  for (const c of formInfo.categories) {
+  // bottles first, so the page opens on a bottle category (the usual case)
+  const bottlesFirst = [...formInfo.categories].sort((a, b) => (a.kind === "instrument") - (b.kind === "instrument"));
+  for (const c of bottlesFirst) {
     select.add(new Option(c.title, c.id));
   }
 }
 
 // redraw everything that depends on the category
 function onCategoryChange() {
+  showSectionsForKind();
   drawCompoundPickers();
   drawBottleFields();
   updateTitle();
   updatePreview();
+}
+
+// an instrument only needs a name and its template's fields: hide the bottle sections
+// (the compounds section hides itself, as an instrument has no compound slots)
+function showSectionsForKind() {
+  const instrument = isInstrument();
+  document.getElementById("where-section").hidden = instrument;
+  document.getElementById("amount-section").hidden = instrument;
+  document.getElementById("title-hint").hidden = instrument;
+  document.getElementById("page-title").textContent = instrument ? "Add an instrument" : "Add a bottle";
+  document.getElementById("item-legend").textContent = instrument ? "This instrument" : "This bottle";
 }
 
 // ---------- 1. compounds ----------
@@ -509,6 +528,13 @@ function bottleFieldValues() {
 // ---------- what Create will send ----------
 
 function buildRequest() {
+  if (isInstrument()) {
+    return {
+      category: currentCategory().id,
+      title: document.getElementById("title").value.trim(),
+      fields: bottleFieldValues(),
+    };
+  }
   return {
     category: currentCategory()?.id ?? null,
     title: document.getElementById("title").value.trim(),
@@ -542,12 +568,14 @@ function missingAnswers(request) {
   const slots = currentCategory()?.compound_slots || [];
   slots.forEach((slotName, i) => need(picked[i], document.getElementById(`compound-${i}`),
     `${slotName}: pick it from the list`));
-  need(request.storage.place_id, document.getElementById("room").value ? document.getElementById("place")
-    : document.getElementById("room"), "Where it is kept: choose a room and a place");
-  need(request.storage.amount !== null && request.storage.amount >= 0, document.getElementById("amount"),
-    "Amount: a number, 0 or more");
-  need(request.storage.unit, document.getElementById("unit"), "Unit");
-  need(request.count >= 1 && request.count <= 20, document.getElementById("count"), "Number of bottles: 1 to 20");
+  if (!isInstrument()) {
+    need(request.storage.place_id, document.getElementById("room").value ? document.getElementById("place")
+      : document.getElementById("room"), "Where it is kept: choose a room and a place");
+    need(request.storage.amount !== null && request.storage.amount >= 0, document.getElementById("amount"),
+      "Amount: a number, 0 or more");
+    need(request.storage.unit, document.getElementById("unit"), "Unit");
+    need(request.count >= 1 && request.count <= 20, document.getElementById("count"), "Number of bottles: 1 to 20");
+  }
   need(request.title, document.getElementById("title"), "Name");
   // the template marks some fields as required (Lot number, Received...)
   for (const f of currentCategory()?.fields || []) {

@@ -99,7 +99,7 @@
   </div>
   <div id="content">
   <div class="form-wrapper">
-    <h2>Add a bottle</h2>
+    <h2 id="page-title">Add a bottle</h2>
 
     <!-- shown when the server answers 401 (no or wrong API key) -->
     <div id="login-banner" class="banner" hidden>
@@ -119,8 +119,8 @@
         <datalist id="compound-options"></datalist>
       </fieldset>
 
-      <!-- 2. WHERE: room, then a place inside it (from the storage tree) -->
-      <fieldset>
+      <!-- 2. WHERE: room, then a place inside it (from the storage tree); bottles only -->
+      <fieldset id="where-section">
         <legend>2. Where it is kept</legend>
         <div class="field">
           <label for="room" class="required">Room</label>
@@ -150,8 +150,8 @@
         </div>
       </fieldset>
 
-      <!-- 3. HOW MUCH: the State field (moved here from the template's fields), amount + unit, count -->
-      <fieldset>
+      <!-- 3. HOW MUCH: the State field (moved here from the template's fields), amount + unit, count; bottles only -->
+      <fieldset id="amount-section">
         <legend>3. How much</legend>
         <div id="state-slot"></div>
         <div class="field">
@@ -171,11 +171,11 @@
 
       <!-- 4. THIS BOTTLE: name + the template's fields that stay on the bottle -->
       <fieldset>
-        <legend>This bottle</legend>
+        <legend id="item-legend">This bottle</legend>
         <div class="field">
           <label for="title" class="required">Name</label>
           <input id="title" type="text" autocomplete="off" />
-          <div class="hint">Filled in from the chemical; you can change it.</div>
+          <div class="hint" id="title-hint">Filled in from the chemical; you can change it.</div>
         </div>
         <div id="bottle-fields"></div>
       </fieldset>
