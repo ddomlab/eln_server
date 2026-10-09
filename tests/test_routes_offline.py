@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 import eln_common.add_bottle as add_bottle
+import eln_common.add_instrument as add_instrument
 import eln_common.bottle_actions as bottle_actions
 import eln_common.bottle_tags as bottle_tags
 import eln_common.routine_checks as routine_checks
@@ -793,6 +794,11 @@ CHEMICAL_TEMPLATE = {"id": 2, "title": "Chemical Compound", "metadata": json.dum
 POLYMER_TEMPLATE = {"id": 3, "title": "Polymer", "metadata": json.dumps({"extra_fields": {
     "Mw": _field(1, "number"), "Full name": _field(2), "SMILES": _field(3), "Location": _field(4),
     "Quantity": _field(5, "number"), "Room": _field(6)}})}
+INSTRUMENT_TEMPLATE = {"id": 1, "title": "Instrument", "metadata": json.dumps({"extra_fields": {
+    "Room": {**_field(1, "select", options=["3057", "3053"], required=True), "value": "3057"},
+    "Maintenance interval": {**_field(2, "select", options=["None", "Every month", "Every 3 months",
+                                                            "Every 6 months", "Every 12 months"]), "value": "None"},
+    "Maintenance notes": _field(3)}})}
 
 
 class FakeBottleRM:
@@ -813,7 +819,7 @@ class FakeBottleRM:
             raise RuntimeError(f"{name} refused")
 
     def get_items_type(self, id):
-        templates = {2: CHEMICAL_TEMPLATE, 3: POLYMER_TEMPLATE}
+        templates = {1: INSTRUMENT_TEMPLATE, 2: CHEMICAL_TEMPLATE, 3: POLYMER_TEMPLATE}
         if id not in templates:
             raise RuntimeError("404")
         return templates[id]
@@ -845,6 +851,13 @@ class FakeBottleRM:
 
     def add_tag(self, item_id, tag):
         self._record("tag", item_id, tag)
+
+    def add_step(self, item_id, body):
+        self._record("step", item_id, body)
+        return 900
+
+    def set_step(self, item_id, step_id, fields):
+        self._record("set_step", item_id, step_id, fields)
 
     def search_items_by_field(self, field, value):
         self.searches.append((field, value))
@@ -1080,7 +1093,69 @@ class TestBottleForm:
         assert resp.status_code == 200 and b"add_bottle.js" in resp.data
 
 
+PUMP = {"category": 1, "title": "Vacuum pump",
+        "fields": {"Room": "3053", "Maintenance interval": "Every 6 months", "Maintenance notes": "Replace pump oil"}}
+
+
+class TestCreateInstrument:
+    def test_maintenance_gets_tag_and_first_step(self):
+        rm = FakeBottleRM()
+        result = add_instrument.create_instrument(rm, PUMP, today=date(2026, 10, 8))
+        assert result == {"bottles": [{"id": 640, "tags": ["Maintenance: every 6 months"],
+                                       "next_due": "2027-04-08", "problems": []}], "problems": []}
+        [create, change, tag, step, set_step] = rm.calls
+        assert create == ("create", 1)  # from the template: its fields and "Maintenance procedure" heading
+        assert change[2]["title"] == "Vacuum pump"
+        extra = json.loads(change[2]["metadata"])["extra_fields"]
+        assert {n: f["value"] for n, f in extra.items()} == {
+            "Room": "3053", "Maintenance interval": "Every 6 months", "Maintenance notes": "Replace pump oil"}
+        assert tag == ("tag", 640, "Maintenance: every 6 months")
+        assert step == ("step", 640, "Instrument maintenance (every 6 months), due 2027-04-08")
+        assert set_step == ("set_step", 640, 900, {"deadline": "2027-04-08 09:00:00"})
+
+    @pytest.mark.parametrize("fields", [{"Room": "3057", "Maintenance interval": "None"}, {"Room": "3057"}])
+    def test_no_maintenance_no_tag_or_step(self, fields):
+        rm = FakeBottleRM()
+        result = add_instrument.create_instrument(rm, {**PUMP, "fields": fields})
+        assert result["bottles"][0]["tags"] == [] and result["bottles"][0]["next_due"] is None
+        assert [c[0] for c in rm.calls] == ["create", "change"]
+
+    @pytest.mark.parametrize("change, message", [
+        ({"title": " "}, "needs a name"),
+        ({"fields": {"Room": "", "Maintenance interval": "Every month"}}, "Room is required"),
+        ({"fields": {"Room": "3057", "Maintenance interval": "Every 2 weeks"}}, "not a maintenance interval"),
+        ({"fields": {"Room": "3057", "Serial": "X1"}}, "'Serial' is not a field"),
+        ({"category": 2}, "Choose an instrument category"),
+    ])
+    def test_bad_request_creates_nothing(self, change, message):
+        rm = FakeBottleRM()
+        with pytest.raises(add_bottle.InvalidBottle, match=message):
+            add_instrument.create_instrument(rm, {**PUMP, **change})
+        assert rm.calls == []
+
+    def test_failed_step_is_a_problem_not_an_error(self):
+        rm = FakeBottleRM(fail={"step"})
+        [pump] = add_instrument.create_instrument(rm, PUMP)["bottles"]
+        assert pump["tags"] == ["Maintenance: every 6 months"] and pump["next_due"] is None
+        assert pump["problems"] == ["Adding the maintenance step failed: step refused"]
+
+    def test_maintenance_tags_have_rules(self):
+        # every option of the template's interval field (except None) has a rule
+        options = json.loads(INSTRUMENT_TEMPLATE["metadata"])["extra_fields"]["Maintenance interval"]["options"]
+        for option in options[1:]:
+            assert routine_checks.rule_for(add_instrument.maintenance_tag(option)) is not None, option
+
+
 class TestCreateResourceRoute:
+    def test_instrument_goes_to_create_instrument(self, client, monkeypatch):
+        rm = FakeBottleRM()
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        resp = client.post("/resources", json=PUMP)
+        assert resp.status_code == 201
+        [pump] = resp.get_json()["bottles"]
+        assert pump["id"] == 640 and pump["tags"] == ["Maintenance: every 6 months"] and pump["url"].endswith("640")
+        assert "storage" not in [c[0] for c in rm.calls]
+
     def test_returns_201_with_id_url_and_problems(self, client, monkeypatch, fake_image):
         monkeypatch.setattr(interface, "rm", lambda: FakeBottleRM())
         resp = client.post("/resources", json=THF_BOTTLE)
@@ -1097,7 +1172,7 @@ class TestCreateResourceRoute:
     def test_failed_create_is_500(self, client, monkeypatch):
         monkeypatch.setattr(interface, "rm", lambda: FakeBottleRM(fail={"create"}))
         resp = client.post("/resources", json=THF_BOTTLE)
-        assert resp.status_code == 500 and "not created" in resp.get_json()["error"]
+        assert resp.status_code == 500 and "Nothing was created" in resp.get_json()["error"]
 
     def test_needs_an_api_key(self, client):
         assert client.post("/resources", json=THF_BOTTLE).status_code == 401
@@ -1228,11 +1303,14 @@ class TestMarkEmpty:
 
 
 class TestRoutineChecks:
-    def test_rules_file_covers_the_peroxide_tags(self):
+    def test_rules_file_covers_the_peroxide_and_maintenance_tags(self):
         assert {r["tag"]: r["every_months"] for r in routine_checks.rules()} == {
-            "Peroxide former: A": 3, "Peroxide former: B": 6, "Peroxide former: C": 6, "Peroxide former: D": 12}
+            "Peroxide former: A": 3, "Peroxide former: B": 6, "Peroxide former: C": 6, "Peroxide former: D": 12,
+            "Maintenance: every month": 1, "Maintenance: every 3 months": 3,
+            "Maintenance: every 6 months": 6, "Maintenance: every 12 months": 12}
         # the tags match the ones bottle_tags gives new bottles
-        assert {f"Peroxide former: {c}" for c in "ABCD"} == {r["tag"] for r in routine_checks.rules()}
+        assert {f"Peroxide former: {c}" for c in "ABCD"} == {
+            r["tag"] for r in routine_checks.rules() if r["tag"].startswith("Peroxide")}
 
     def test_rule_for_reads_elabftw_tags(self):
         assert routine_checks.rule_for("Flammable|Peroxide former: B")["every_months"] == 6

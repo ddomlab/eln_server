@@ -670,18 +670,20 @@ function showCreated(data) {
   const links = bottles.map((b) => ({
     url: b.url,
     text: `#${b.id} ${document.getElementById("title").value}`,
-    after: b.tags.length ? ` · ${b.tags.join(", ")}` : "",
+    after: (b.tags.length ? ` · ${b.tags.join(", ")}` : "")
+      + (b.next_due ? ` · next maintenance due ${b.next_due}` : ""),
   }));
   const problems = [...data.problems, ...bottles.flatMap((b) => b.problems.map((p) => `#${b.id}: ${p}`))];
+  const what = isInstrument() ? "instrument" : bottles.length === 1 ? "bottle" : `${bottles.length} bottles`;
   showCreateMessage({
-    text: `✔ Created ${bottles.length === 1 ? "bottle" : `${bottles.length} bottles`}. Write the number on the bottle, or print its label:`,
+    text: `✔ Created ${what}. Write the number on it, or print its label:`,
     kind: problems.length ? "" : "ok",
     links,
     items: problems.map((p) => `⚠ ${p} (finish this in eLabFTW)`),
     buttons: [
       { text: bottles.length === 1 ? "Print label" : `Print ${bottles.length} labels`,
         onClick: () => printLabels(bottles.map((b) => b.id)) },
-      { text: "Add another bottle", onClick: () => window.location.reload(), secondary: true },
+      { text: isInstrument() ? "Add another instrument" : "Add another bottle", onClick: () => window.location.reload(), secondary: true },
     ],
   });
 }

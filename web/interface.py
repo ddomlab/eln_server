@@ -7,6 +7,7 @@ from flask_cors import cross_origin
 from requests import HTTPError
 
 import eln_common.add_bottle as add_bottle
+import eln_common.add_instrument as add_instrument
 import eln_common.bottle_actions as bottle_actions
 import eln_common.compound_import as compound_import
 import eln_common.bottle_tags as bottle_tags
@@ -529,7 +530,9 @@ def create_resource():
     fields: {name: value}}. 400 if the request is incomplete (nothing created). 409 with
     "same_lot" and a "question" for the user when bottles from that lot are already in the
     ELN; send again with confirm_same_lot: true to add them. 201 with
-    {bottles: [{id, url, tags, problems}], problems} once at least one bottle exists."""
+    {bottles: [{id, url, tags, problems}], problems} once at least one bottle exists.
+    For an instrument category the request is just {category, title, fields}, and the
+    one instrument comes back in the same shape (with its next maintenance date)."""
     data = request.get_json(force=True, silent=True)
     if not isinstance(data, dict):
         return jsonify({"status": "error", "error": "Expected a JSON object"}), 400
@@ -538,14 +541,17 @@ def create_resource():
     except ValueError as e:
         return jsonify({"status": "error", "error": str(e)}), 401
     try:
-        result = add_bottle.create_bottles(rmn, data)
+        if add_instrument.is_instrument(rmn, data.get("category")):
+            result = add_instrument.create_instrument(rmn, data)
+        else:
+            result = add_bottle.create_bottles(rmn, data)
     except add_bottle.InvalidBottle as e:
         return jsonify({"status": "error", "error": str(e)}), 400
     except add_bottle.SameLotBottles as e:
         return jsonify({"status": "error", "error": str(e), "question": e.question, "same_lot": [
             {**b, "url": config.item_web_url(b["id"])} for b in e.bottles]}), 409
     except Exception as e:
-        return jsonify({"status": "error", "error": f"The bottle was not created: {e}"}), 500
+        return jsonify({"status": "error", "error": f"Nothing was created: {e}"}), 500
     for bottle in result["bottles"]:
         bottle["url"] = config.item_web_url(bottle["id"])
     return jsonify(result), 201
