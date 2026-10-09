@@ -12,8 +12,8 @@ create_bottles() can add several identical bottles from one order at once; each
 gets its own id and label. It first reminds the user when bottles from the same
 lot (same lot number, supplier and chemical) are already in the ELN, since an
 already-labelled bottle may be entered again by mistake. Then, for each bottle:
-create from the template -> title and fields -> link compounds -> hazard and
-peroxide tags -> put it in its place -> structure image. Once a bottle exists it
+create from the template -> title and fields -> link compounds -> peroxide
+tag -> put it in its place -> structure image. Once a bottle exists it
 is never deleted: a later step that fails is reported back as a problem, so the
 user can finish it in eLabFTW.
 """
