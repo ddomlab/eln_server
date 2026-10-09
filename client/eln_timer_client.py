@@ -7,6 +7,7 @@ to be run by the systemd timers in this directory (replacing the old cron jobs),
 but can be run by hand:
 
     eln_timer_client.py check_peroxides
+    eln_timer_client.py routine_checks
 
 Uses only the Python standard library, so it needs no environment to run.
 
@@ -25,6 +26,7 @@ API_KEY_FILE = os.environ.get("ELN_API_KEY_FILE", "/etc/eln-client/api_key")
 
 TASKS = {
     "check_peroxides": {},
+    "routine_checks": {},
 }
 
 

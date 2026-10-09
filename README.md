@@ -69,8 +69,14 @@ The Slack bot token is also server-side: set `slack_bot_token` in `secrets.yaml`
 
 ## Automation API
 
+- `POST /api/routine_checks` — the monthly reminder: lists the routine checks
+  (peroxide tests, instrument maintenance; rules in `automations/routine_checks.yaml`)
+  that are overdue or due this month and posts them to the Slack `maintenance`
+  channel. `{"dry_run": true}` returns the message without posting; a dry run may
+  set `"today": "YYYY-MM-DD"` to preview another month. Only reads the ELN.
 - `POST /api/check_peroxides` — checks the inventory against the class A–D
-  peroxide-former lists and sends Slack reminders. Returns match counts.
+  peroxide-former lists and sends Slack reminders. Returns match counts. (Its
+  twice-a-year timer was replaced by the monthly reminder above.)
 
 Label printing (`/print`) generates the PDF on the fly from the item's current
 data.
@@ -134,8 +140,9 @@ The PTH tracker is a separate project (https://github.com/ddomlab/pth_analysis).
 
 The systemd timers (in `client/`) execute the automated actions. They can be automatically installed with the `install.sh` script in `client/`
 
-This installs `eln-peroxide-check.timer` (May 1 and Nov 1), and removes the old
-`eln-autofill.timer` from hosts that still have it. The key is stored at `/etc/eln-client/api_key`; the server
+This installs `eln-routine-checks.timer` (the first Friday of each month, 9:00
+New York time), and removes the old `eln-peroxide-check.timer` (May 1 and Nov 1)
+and `eln-autofill.timer` from hosts that still have them. The key is stored at `/etc/eln-client/api_key`; the server
 URL is set via `ELN_SERVER_URL` in the `.service` files.
 Pass it at install time to skip editing them; with the Docker deploy on the same
 host that's the local port:

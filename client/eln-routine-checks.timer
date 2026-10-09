@@ -1,0 +1,11 @@
+[Unit]
+Description=Monthly ELN routine-check reminder (first Friday of the month, 9:00 New York time)
+
+[Timer]
+# a Friday that falls on day 1-7 = the first Friday of the month
+OnCalendar=Fri *-*-01..07 09:00:00 America/New_York
+# catch up if the machine was off at that time
+Persistent=true
+
+[Install]
+WantedBy=timers.target

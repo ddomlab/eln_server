@@ -8,8 +8,10 @@ import eln_common.config as config
 DEFAULT_CHANNEL: str = "default"
 # error reports from the automations
 ERROR_CHANNEL: str = "error"
-# peroxide former reminders
+# peroxide former reminders (the old twice-a-year check)
 PEROXIDE_CHANNEL: str = "peroxide"
+# monthly routine-check reminders (peroxide tests; later instrument checks)
+MAINTENANCE_CHANNEL: str = "maintenance"
 
 def _get_token() -> str:
     # loaded lazily so the server can start (and non-Slack features work)
@@ -37,11 +39,25 @@ def send_message(message: str, channel: str = DEFAULT_CHANNEL):
         "Authorization": "Bearer " + _get_token(),
         "Content-Type": "application/json",
     }
-    requests.post(
+    response = requests.post(
         "https://slack.com/api/chat.postMessage",
         headers=headers,
         json={"channel": channel_id, "text": message},
+        timeout=30,
     )
+    _check_reply(response, channel)
+
+
+def _check_reply(response: requests.Response, channel: str) -> None:
+    """Raises if Slack did not post the message. Slack answers 200 even when it
+    refuses one (e.g. the bot isn't in the channel), with {"ok": false, "error": ...}."""
+    try:
+        reply = response.json()
+    except ValueError:
+        reply = {}
+    if not response.ok or not reply.get("ok"):
+        raise RuntimeError(f"Slack did not post the message to '{channel}': "
+                           f"{reply.get('error') or f'HTTP {response.status_code}'}")
 
 
 if __name__ == "__main__":

@@ -368,6 +368,29 @@ class Resource_Manager:
         response.raise_for_status()
         return response.json()
 
+    def get_team_tags(self) -> list[dict[str, Any]]:
+        """All tags used in the team: [{id, tag, item_count, ...}]."""
+        response = self.get_url("/teams/current/tags")
+        response.raise_for_status()
+        return response.json()
+
+    def items_with_tag(self, tag: str, page_size: int = 100) -> list[dict[str, Any]]:
+        """
+        Resources with this exact tag, as eLabFTW lists them (with status and state, but
+        not containers or steps). eLabFTW matches whole tags only, and several tags[]
+        would mean "has all of them", so this takes one tag. Asks page by page until a
+        short page, so long lists are not cut off.
+        """
+        items: list[dict[str, Any]] = []
+        while True:
+            response = requests.get(config.URL + "/items", headers=self.header,
+                                    params={"tags[]": tag, "limit": page_size, "offset": len(items)})
+            response.raise_for_status()
+            page = response.json()
+            items += page
+            if len(page) < page_size:
+                return items
+
     def get_uploaded_files(self, id:int, resource_type:str="items") -> list:
         """
         Gets a list of uploaded files in the ELN with the given ID.
