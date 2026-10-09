@@ -94,8 +94,8 @@ def get_statuses():
 @cross_origin(origins="http://localhost:8000")
 def compounds_list():
     """Existing compounds as [{id, name, cas, formula, hazards, peroxide_class}], sorted
-    by name, for the add-bottle compound dropdown. hazards and peroxide_class are what
-    the bottle's tags will be (see bottle_tags)."""
+    by name, for the add-bottle compound dropdown. hazards are the compound's GHS flags
+    (shown, not tagged); peroxide_class becomes the bottle's tag (see bottle_tags)."""
     try:
         compounds = rm().get_compounds()
         listing = [
@@ -104,7 +104,7 @@ def compounds_list():
                 "name": c.get("name") or "",
                 "cas": c.get("cas_number") or "",
                 "formula": c.get("molecular_formula") or "",
-                "hazards": [tag for flag, tag in bottle_tags.HAZARD_TAGS.items() if c.get(flag)],
+                "hazards": [tag for flag, tag in bottle_tags.HAZARD_NAMES.items() if c.get(flag)],
                 "peroxide_class": bottle_tags.peroxide_class(c),
             }
             for c in compounds

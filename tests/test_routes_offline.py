@@ -899,7 +899,7 @@ def existing_bottle(id, title, links=(), **values):
 THF_COMPOUND = {"id": 77, "name": "Tetrahydrofuran", "smiles": "C1CCOC1", "cas_number": "109-99-9",
                 "inchi_key": "WYURNTSHIVDZCO-UHFFFAOYSA-N", "is_flammable": 1, "is_hazardous2health": 1,
                 "is_serious_health_hazard": 1, "is_toxic": 0}
-THF_TAGS = ["Flammable", "Health hazard", "Serious health hazard", "Peroxide former: B"]
+THF_TAGS = ["Peroxide former: B"]  # hazards are not tagged, only the peroxide class
 THF_BOTTLE = {"category": 2, "title": " Tetrahydrofuran ", "compounds": [77],
               "storage": {"place_id": 6, "amount": 500, "unit": "mL"},
               "fields": {"Manufacturer": "Sigma-Aldrich", "Lot number": "SHBM1234", "Purity": 99.9,
@@ -916,7 +916,7 @@ class TestAddBottle:
         rm = FakeBottleRM()
         assert add_bottle.create_bottles(rm, THF_BOTTLE) == {
             "bottles": [{"id": 640, "tags": THF_TAGS, "problems": []}], "problems": []}
-        assert [c[0] for c in rm.calls] == ["create", "change", "link"] + ["tag"] * 4 + ["storage", "upload"]
+        assert [c[0] for c in rm.calls] == ["create", "change", "link"] + ["tag"] * len(THF_TAGS) + ["storage", "upload"]
         assert rm.calls[0] == ("create", 2)
         assert rm.calls[2] == ("link", 640, 77)
         assert [c[2] for c in rm.calls if c[0] == "tag"] == THF_TAGS
@@ -983,7 +983,7 @@ class TestAddBottle:
     def test_solution_gets_tags_of_both_compounds_once(self, fake_image):
         rm = FakeBottleRM()
         result = add_bottle.create_bottles(rm, {**THF_BOTTLE, "compounds": [72, 77]})["bottles"][0]
-        assert result["tags"] == THF_TAGS  # Flammable from both, listed once
+        assert result["tags"] == THF_TAGS  # acetone adds none: it is not a peroxide former
         assert [c for c in rm.calls if c[0] == "link"] == [("link", 640, 72), ("link", 640, 77)]
 
     def test_units_offered_per_state_are_elabftw_units(self):
@@ -1058,7 +1058,7 @@ class TestSameLot:
 
 
 class TestBottleTags:
-    """Hazard tags from the compound's flags; peroxide class from the real EPA lists."""
+    """Only the peroxide class is tagged, from the real EPA lists; hazards are not."""
 
     def test_all_four_lists_are_read(self):
         assert set(bottle_tags.peroxide_classes().values()) == {"A", "B", "C", "D"}
@@ -1076,6 +1076,13 @@ class TestBottleTags:
 
     def test_tags_for_thf(self):
         assert bottle_tags.tags_for([THF_COMPOUND]) == THF_TAGS
+
+    def test_hazardous_but_not_a_peroxide_former_gets_no_tags(self):
+        assert bottle_tags.tags_for([{"cas_number": "67-64-1", "is_flammable": 1}]) == []  # acetone
+
+    def test_two_peroxide_formers_of_one_class_tag_once(self):
+        ethers = [{"cas_number": "109-99-9"}, {"cas_number": "60-29-7"}]   # THF, diethyl ether: both B
+        assert bottle_tags.tags_for(ethers) == ["Peroxide former: B"]
 
     def test_no_compounds_no_tags(self):
         assert bottle_tags.tags_for([]) == []

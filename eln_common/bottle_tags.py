@@ -1,11 +1,12 @@
 """
-Tags a new bottle with the hazards and peroxide class of its compound(s), so they
-show on the bottle and can be searched ("every bottle tagged Peroxide former: B").
+Tags a new bottle with the peroxide class of its compound(s) ("Peroxide former: B"),
+which starts its routine peroxide tests (see routine_checks) and can be searched.
+The class comes from the EPA CompTox peroxide-former lists A-D kept in
+automations/peroxides, matched by the compound's CAS number or InChIKey.
 
-  - Hazard tags come from the compound's GHS flags (is_flammable...).
-  - The peroxide tag comes from the EPA CompTox peroxide-former lists A-D kept in
-    automations/peroxides (the files the peroxide reminder uses), matched by the
-    compound's CAS number or InChIKey.
+Hazards are not tagged (lab decision, 2026-10): the supplier's label carries them,
+and the compound keeps its GHS flags in eLabFTW. HAZARD_NAMES only names those flags
+for the add-bottle page.
 
 Tags are added when the bottle is created; bottles made earlier are not updated.
 """
@@ -18,8 +19,8 @@ from typing import Any
 
 PEROXIDE_DIR = Path(__file__).resolve().parent.parent / "automations" / "peroxides"
 
-# eLabFTW compound flag -> tag on the bottle
-HAZARD_TAGS = {
+# eLabFTW compound flag -> its name, shown on the add-bottle page
+HAZARD_NAMES = {
     "is_explosive": "Explosive",
     "is_flammable": "Flammable",
     "is_oxidising": "Oxidiser",
@@ -62,10 +63,6 @@ def peroxide_class(compound: dict[str, Any]) -> str | None:
 def tags_for(compounds: list[dict[str, Any]]) -> list[str]:
     """The tags for a bottle holding these compounds, without repeats."""
     tags: list[str] = []
-    for compound in compounds:
-        for flag, tag in HAZARD_TAGS.items():
-            if compound.get(flag) and tag not in tags:
-                tags.append(tag)
     for compound in compounds:
         clss = peroxide_class(compound)
         if clss and f"Peroxide former: {clss}" not in tags:
