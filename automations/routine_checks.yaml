@@ -1,5 +1,6 @@
-# Routine checks on opened bottles and on instruments, kept as steps on each
-# resource's ELN page.
+# Routine checks on opened bottles, kept as steps on each bottle's ELN page.
+# (Instrument maintenance needs no rule here: its tag, e.g. "Maintenance: every
+# 45 days", says the interval; see eln_common/routine_checks.maintenance_rule.)
 #
 # A bottle with one of these tags gets the step when it is marked open in the
 # Resource Manager app, due `every_months` later. Scanning it with "Tested" ticks
@@ -21,21 +22,4 @@ checks:
     every_months: 6
   - tag: "Peroxide former: D"
     step: "Test for peroxides (class D)"
-    every_months: 12
-
-  # Instrument maintenance. An instrument gets one of these tags when it is added
-  # in the app with a "Maintenance interval" (the tag is "Maintenance: " + the
-  # interval in lower case), and its first step right away, due one interval later.
-  # The intervals must match the options of the Instrument template's field.
-  - tag: "Maintenance: every month"
-    step: "Instrument maintenance (every month)"
-    every_months: 1
-  - tag: "Maintenance: every 3 months"
-    step: "Instrument maintenance (every 3 months)"
-    every_months: 3
-  - tag: "Maintenance: every 6 months"
-    step: "Instrument maintenance (every 6 months)"
-    every_months: 6
-  - tag: "Maintenance: every 12 months"
-    step: "Instrument maintenance (every 12 months)"
     every_months: 12

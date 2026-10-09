@@ -17,6 +17,8 @@ let titleTouched = false; // stop filling the name in once the user types their 
 
 const OTHER = "__other__"; // select value meaning "typed in the Other box"
 const ADD_PLACE = "__add_place__"; // place value meaning "+ Add a new place…"
+// dropdowns that only take their own options: the reminders can only count days, weeks or months
+const NO_OTHER = new Set(["Maintenance unit"]);
 
 // ---------- talking to the server ----------
 
@@ -83,6 +85,7 @@ function showSectionsForKind() {
   document.getElementById("where-section").hidden = instrument;
   document.getElementById("amount-section").hidden = instrument;
   document.getElementById("title-hint").hidden = instrument;
+  document.getElementById("procedure-field").hidden = !instrument;
   document.getElementById("page-title").textContent = instrument ? "Add an instrument" : "Add a bottle";
   document.getElementById("item-legend").textContent = instrument ? "This instrument" : "This bottle";
 }
@@ -476,7 +479,7 @@ function fieldElement(f) {
     input = document.createElement("select");
     input.add(new Option("— choose —", ""));
     for (const option of f.options || []) input.add(new Option(option, option));
-    input.add(new Option("Other…", OTHER));
+    if (!NO_OTHER.has(f.name)) input.add(new Option("Other…", OTHER));
   } else {
     input = document.createElement("input");
     input.type = { date: "date", number: "number" }[f.type] || "text";
@@ -533,6 +536,7 @@ function buildRequest() {
       category: currentCategory().id,
       title: document.getElementById("title").value.trim(),
       fields: bottleFieldValues(),
+      procedure: document.getElementById("procedure").value,
     };
   }
   return {
@@ -724,7 +728,7 @@ async function start() {
   document.getElementById("title").addEventListener("input", () => { titleTouched = true; updatePreview(); });
   document.getElementById("bottle-form").addEventListener("submit", onCreate);
   document.getElementById("room").addEventListener("change", onRoomChange);
-  for (const id of ["amount", "unit", "count"]) {
+  for (const id of ["amount", "unit", "count", "procedure"]) {
     document.getElementById(id).addEventListener("input", updatePreview);
   }
   // choosing a State changes the units on offer

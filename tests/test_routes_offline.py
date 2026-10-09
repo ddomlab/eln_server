@@ -796,9 +796,9 @@ POLYMER_TEMPLATE = {"id": 3, "title": "Polymer", "metadata": json.dumps({"extra_
     "Quantity": _field(5, "number"), "Room": _field(6)}})}
 INSTRUMENT_TEMPLATE = {"id": 1, "title": "Instrument", "metadata": json.dumps({"extra_fields": {
     "Room": {**_field(1, "select", options=["3057", "3053"], required=True), "value": "3057"},
-    "Maintenance interval": {**_field(2, "select", options=["None", "Every month", "Every 3 months",
-                                                            "Every 6 months", "Every 12 months"]), "value": "None"},
-    "Maintenance notes": _field(3)}})}
+    "Maintenance every": _field(2, "number"),
+    "Maintenance unit": {**_field(3, "select", options=["days", "weeks", "months"]), "value": "months"},
+    "Maintenance notes": _field(4)}})}
 
 
 class FakeBottleRM:
@@ -1072,7 +1072,7 @@ class TestBottleForm:
 
     def test_route_lists_categories_with_their_kind_and_own_fields(self, client, monkeypatch):
         instrument = {"id": 1, "title": "Instrument", "metadata": json.dumps({"extra_fields": {
-            "Maintenance interval": _field(2), "Room": _field(1)}})}
+            "Maintenance every": _field(2), "Room": _field(1)}})}
         templates = {1: instrument, 2: CHEMICAL_TEMPLATE}
         fake_rm = SimpleNamespace(get_items_types=lambda: [{"id": i, "title": t["title"]} for i, t in templates.items()],
                                   get_items_type=lambda id: templates[id])
@@ -1083,7 +1083,7 @@ class TestBottleForm:
         assert [(c["id"], c["kind"], c["compound_slots"]) for c in categories] == [
             (1, "instrument", []), (2, "bottle", ["Chemical"])]
         # an instrument category keeps all its fields (Room too), in template order
-        assert [f["name"] for f in categories[0]["fields"]] == ["Room", "Maintenance interval"]
+        assert [f["name"] for f in categories[0]["fields"]] == ["Room", "Maintenance every"]
         names = [f["name"] for f in categories[1]["fields"]]
         assert names == ["CAS", "Received", "State", "Purity", "Lot number", "Manufacturer"]  # template order
         assert resp.get_json()["units_by_state"]["Liquid"] == ["\u03bcL", "mL", "L"]
@@ -1093,8 +1093,9 @@ class TestBottleForm:
         assert resp.status_code == 200 and b"add_bottle.js" in resp.data
 
 
-PUMP = {"category": 1, "title": "Vacuum pump",
-        "fields": {"Room": "3053", "Maintenance interval": "Every 6 months", "Maintenance notes": "Replace pump oil"}}
+PUMP = {"category": 1, "title": "Vacuum pump", "procedure": "",
+        "fields": {"Room": "3053", "Maintenance every": 6, "Maintenance unit": "months",
+                   "Maintenance notes": "Replace pump oil"}}
 
 
 class TestCreateInstrument:
@@ -1105,26 +1106,54 @@ class TestCreateInstrument:
                                        "next_due": "2027-04-08", "problems": []}], "problems": []}
         [create, change, tag, step, set_step] = rm.calls
         assert create == ("create", 1)  # from the template: its fields and "Maintenance procedure" heading
-        assert change[2]["title"] == "Vacuum pump"
+        assert change[2]["title"] == "Vacuum pump" and "body" not in change[2]  # no procedure typed
         extra = json.loads(change[2]["metadata"])["extra_fields"]
         assert {n: f["value"] for n, f in extra.items()} == {
-            "Room": "3053", "Maintenance interval": "Every 6 months", "Maintenance notes": "Replace pump oil"}
+            "Room": "3053", "Maintenance every": "6", "Maintenance unit": "months", "Maintenance notes": "Replace pump oil"}
         assert tag == ("tag", 640, "Maintenance: every 6 months")
         assert step == ("step", 640, "Instrument maintenance (every 6 months), due 2027-04-08")
         assert set_step == ("set_step", 640, 900, {"deadline": "2027-04-08 09:00:00"})
 
-    @pytest.mark.parametrize("fields", [{"Room": "3057", "Maintenance interval": "None"}, {"Room": "3057"}])
+    @pytest.mark.parametrize("every, unit, tag, due", [
+        ("45", "days", "Maintenance: every 45 days", "2026-11-22"),
+        (2, "weeks", "Maintenance: every 2 weeks", "2026-10-22"),
+        ("1", "months", "Maintenance: every 1 month", "2026-11-08"),
+        ("1", "weeks", "Maintenance: every 1 week", "2026-10-15"),
+    ])
+    def test_days_weeks_and_months(self, every, unit, tag, due):
+        rm = FakeBottleRM()
+        fields = {**PUMP["fields"], "Maintenance every": every, "Maintenance unit": unit}
+        [pump] = add_instrument.create_instrument(rm, {**PUMP, "fields": fields}, today=date(2026, 10, 8))["bottles"]
+        assert pump["tags"] == [tag] and pump["next_due"] == due
+
+    @pytest.mark.parametrize("fields", [{"Room": "3057", "Maintenance every": ""}, {"Room": "3057"}])
     def test_no_maintenance_no_tag_or_step(self, fields):
         rm = FakeBottleRM()
         result = add_instrument.create_instrument(rm, {**PUMP, "fields": fields})
         assert result["bottles"][0]["tags"] == [] and result["bottles"][0]["next_due"] is None
         assert [c[0] for c in rm.calls] == ["create", "change"]
 
+    def test_procedure_goes_into_the_main_text(self):
+        rm = FakeBottleRM()
+        procedure = "1. Switch off <pump>\n2. Drain oil\n\nCall Tosoh if it leaks"
+        add_instrument.create_instrument(rm, {**PUMP, "procedure": procedure})
+        body = rm.calls[1][2]["body"]
+        assert body == ("<h2>Maintenance procedure</h2>\n<p>1. Switch off &lt;pump&gt;<br>2. Drain oil</p>\n"
+                        "<p>Call Tosoh if it leaks</p>")
+
     @pytest.mark.parametrize("change, message", [
         ({"title": " "}, "needs a name"),
-        ({"fields": {"Room": "", "Maintenance interval": "Every month"}}, "Room is required"),
-        ({"fields": {"Room": "3057", "Maintenance interval": "Every 2 weeks"}}, "not a maintenance interval"),
+        ({"fields": {"Room": "", "Maintenance every": "3"}}, "Room is required"),
+        ({"fields": {"Room": "3057", "Maintenance every": "1.5"}}, "whole number"),
+        ({"fields": {"Room": "3057", "Maintenance every": "0"}}, "whole number"),
+        ({"fields": {"Room": "3057", "Maintenance every": "-2"}}, "whole number"),
+        ({"fields": {"Room": "3057", "Maintenance every": "six"}}, "whole number"),
+        ({"fields": {"Room": "3057", "Maintenance every": "3", "Maintenance unit": "years"}}, "must be one of"),
+        ({"fields": {"Room": "3057", "Maintenance every": "45"}}, "Choose the Maintenance unit"),
+        ({"fields": {"Room": "3057", "Maintenance every": "45", "Maintenance unit": ""}}, "Choose the Maintenance unit"),
+        ({"fields": {"Room": "3057", "Maintenance every": "500", "Maintenance unit": "months"}}, "too long"),
         ({"fields": {"Room": "3057", "Serial": "X1"}}, "'Serial' is not a field"),
+        ({"procedure": "x" * 20001}, "too long"),
         ({"category": 2}, "Choose an instrument category"),
     ])
     def test_bad_request_creates_nothing(self, change, message):
@@ -1139,11 +1168,29 @@ class TestCreateInstrument:
         assert pump["tags"] == ["Maintenance: every 6 months"] and pump["next_due"] is None
         assert pump["problems"] == ["Adding the maintenance step failed: step refused"]
 
-    def test_maintenance_tags_have_rules(self):
-        # every option of the template's interval field (except None) has a rule
-        options = json.loads(INSTRUMENT_TEMPLATE["metadata"])["extra_fields"]["Maintenance interval"]["options"]
-        for option in options[1:]:
-            assert routine_checks.rule_for(add_instrument.maintenance_tag(option)) is not None, option
+
+class TestMaintenanceRules:
+    @pytest.mark.parametrize("tags, rule", [
+        ("Maintenance: every 45 days", {"tag": "Maintenance: every 45 days", "step": "Instrument maintenance (every 45 days)",
+                                        "every": 45, "unit": "day"}),
+        ("Flammable|Maintenance: every 1 week", {"tag": "Maintenance: every 1 week",
+                                                 "step": "Instrument maintenance (every 1 week)", "every": 1, "unit": "week"}),
+        ("Maintenance: every 0 days", None),
+        ("Maintenance: every 121 months", None),
+        ("Maintenance: every month", None),
+        ("Maintenance: sometimes", None),
+    ])
+    def test_rule_from_tag(self, tags, rule):
+        assert routine_checks.rule_for(tags) == rule
+
+    def test_peroxide_rule_wins_and_steps_are_recognised(self):
+        assert routine_checks.rule_for("Peroxide former: B|Maintenance: every 3 days")["tag"] == "Peroxide former: B"
+        assert routine_checks.is_check_step({"body": "Instrument maintenance (every 3 days), due 2026-10-11"})
+        assert not routine_checks.is_check_step({"body": "Dissolve polymer in sample of mobile phase overnight"})
+
+    def test_month_end(self):
+        rule = routine_checks.maintenance_rule("Maintenance: every 1 month")
+        assert routine_checks.due_date(date(2027, 1, 31), rule) == date(2027, 2, 28)
 
 
 class TestCreateResourceRoute:
@@ -1303,11 +1350,9 @@ class TestMarkEmpty:
 
 
 class TestRoutineChecks:
-    def test_rules_file_covers_the_peroxide_and_maintenance_tags(self):
+    def test_rules_file_covers_the_peroxide_tags(self):
         assert {r["tag"]: r["every_months"] for r in routine_checks.rules()} == {
-            "Peroxide former: A": 3, "Peroxide former: B": 6, "Peroxide former: C": 6, "Peroxide former: D": 12,
-            "Maintenance: every month": 1, "Maintenance: every 3 months": 3,
-            "Maintenance: every 6 months": 6, "Maintenance: every 12 months": 12}
+            "Peroxide former: A": 3, "Peroxide former: B": 6, "Peroxide former: C": 6, "Peroxide former: D": 12}
         # the tags match the ones bottle_tags gives new bottles
         assert {f"Peroxide former: {c}" for c in "ABCD"} == {
             r["tag"] for r in routine_checks.rules() if r["tag"].startswith("Peroxide")}
@@ -1376,7 +1421,7 @@ class TestBottleLifecycle:
         # an instrument has no Opened field: Tested ticks its maintenance step without Mark Open
         rm = FakeBottleItemsRM({627: ("Maintenance: every 6 months", "")})
         rm.get_item = lambda id: {"id": id, "tags": "Maintenance: every 6 months", "metadata": json.dumps(
-            {"extra_fields": {"Room": {"value": "3053"}, "Maintenance interval": {"value": "Every 6 months"}}})}
+            {"extra_fields": {"Room": {"value": "3053"}, "Maintenance every": {"value": "6"}}})}
         routine_checks.schedule(rm, 627, routine_checks.rule_for("Maintenance: every 6 months"), date(2026, 10, 8))
         result = bottle_actions.mark_tested(rm, [627], today=date(2027, 4, 1))
         assert result == {"tested": [{"id": 627, "step": "Instrument maintenance (every 6 months)",
