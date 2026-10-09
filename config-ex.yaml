@@ -40,9 +40,11 @@ slack_enabled: false
 
 # Slack channel IDs the bot posts to -- find them via "view channel details"
 # in Slack. "default" gets general bot messages, "error" gets automation
-# failure reports, "peroxide" gets peroxide-former reminders. A missing
-# entry falls back to "default".
+# failure reports, "peroxide" gets the twice-a-year peroxide-former check,
+# "maintenance" the monthly routine-check reminders. A missing entry falls
+# back to "default".
 slack_channels:
   default: ""
   error: ""
   peroxide: ""
+  maintenance: ""

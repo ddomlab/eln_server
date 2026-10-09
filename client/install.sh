@@ -14,13 +14,18 @@ KEY_FILE=/etc/eln-client/api_key
 
 install -d /opt/eln-client
 install -m 755 "$SCRIPT_DIR/eln_timer_client.py" /opt/eln-client/
-install -m 644 "$SCRIPT_DIR"/eln-peroxide-check.{service,timer} /etc/systemd/system/
+UNITS=(eln-routine-checks)
+for unit in "${UNITS[@]}"; do
+    install -m 644 "$SCRIPT_DIR/$unit".{service,timer} /etc/systemd/system/
+done
 
 # optional: point the timers at a server other than the default in the .service files,
 # e.g. sudo ELN_SERVER_URL=http://127.0.0.1:5001 ./install.sh (the Docker deploy's local port)
 if [[ -n ${ELN_SERVER_URL:-} ]]; then
-    sed -i "s|^Environment=ELN_SERVER_URL=.*|Environment=ELN_SERVER_URL=$ELN_SERVER_URL|" \
-        /etc/systemd/system/eln-peroxide-check.service
+    for unit in "${UNITS[@]}"; do
+        sed -i "s|^Environment=ELN_SERVER_URL=.*|Environment=ELN_SERVER_URL=$ELN_SERVER_URL|" \
+            "/etc/systemd/system/$unit.service"
+    done
     echo "Timers will call $ELN_SERVER_URL"
 fi
 
@@ -41,20 +46,25 @@ if [[ ! -f $KEY_FILE ]]; then
     echo "Wrote $KEY_FILE"
 fi
 
-# autofill was removed (compounds now hold the chemical details): take its old
-# timer off hosts that still have it, so it stops calling a route that is gone
-if [[ -f /etc/systemd/system/eln-autofill.timer ]]; then
-    systemctl disable --now eln-autofill.timer || true
-    rm -f /etc/systemd/system/eln-autofill.service /etc/systemd/system/eln-autofill.timer
-    echo "Removed the old eln-autofill timer"
-fi
+# timers that were replaced: take them off hosts that still have them.
+#   eln-autofill: removed (compounds now hold the chemical details)
+#   eln-peroxide-check: the twice-a-year list, replaced by the monthly eln-routine-checks
+for old in eln-autofill eln-peroxide-check; do
+    if [[ -f /etc/systemd/system/$old.timer ]]; then
+        systemctl disable --now "$old.timer" || true
+        rm -f "/etc/systemd/system/$old.service" "/etc/systemd/system/$old.timer"
+        echo "Removed the old $old timer"
+    fi
+done
 
 systemctl daemon-reload
-systemctl enable --now eln-peroxide-check.timer
+for unit in "${UNITS[@]}"; do
+    systemctl enable --now "$unit.timer"
+done
 
 echo
 echo "Installed. Check status with:"
 echo "  systemctl list-timers 'eln-*'"
 echo "To point at a non-local server, edit ELN_SERVER_URL in"
-echo "  /etc/systemd/system/eln-peroxide-check.service,"
+echo "  /etc/systemd/system/eln-*.service,"
 echo "then: systemctl daemon-reload"

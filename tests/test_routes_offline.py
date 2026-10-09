@@ -237,6 +237,27 @@ class TestSecrets:
         with pytest.raises(ValueError, match="slack_bot_token"):
             slackbot._get_token()
 
+    @pytest.mark.parametrize("status, reply, error", [
+        (200, {"ok": True}, None),
+        (200, {"ok": False, "error": "not_in_channel"}, "not_in_channel"),  # Slack's 200 refusal
+        (200, {"ok": False, "error": "channel_not_found"}, "channel_not_found"),
+        (500, ValueError("not JSON"), "HTTP 500"),
+    ])
+    def test_slack_refusals_raise(self, status, reply, error):
+        import automations.slackbot as slackbot
+
+        def json():
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        response = SimpleNamespace(ok=status < 400, status_code=status, json=json)
+        if error is None:
+            slackbot._check_reply(response, "maintenance")
+        else:
+            with pytest.raises(RuntimeError, match=f"'maintenance': {error}"):
+                slackbot._check_reply(response, "maintenance")
+
     def test_example_file_has_the_expected_fields(self):
         import yaml
 
@@ -1324,6 +1345,253 @@ class TestRoutineChecks:
     ])
     def test_add_months(self, start, months, due):
         assert routine_checks.add_months(start, months) == due
+
+
+class FakeTaggedRM:
+    """Stand-in for items_with_tag; tagged maps tag -> items as eLabFTW lists them."""
+
+    def __init__(self, tagged):
+        self.tagged = tagged
+
+    def items_with_tag(self, tag):
+        return self.tagged.get(tag, [])
+
+
+class TestBottlesToCheck:
+    def test_keeps_bottles_in_the_lab_with_their_rule(self):
+        rm = FakeTaggedRM({
+            "Peroxide former: A": [{"id": 640, "state": 1, "status": 4}],
+            "Peroxide former: B": [{"id": 619, "state": 1, "status": 1},
+                                   {"id": 621, "state": 1, "status": 5},    # Empty
+                                   {"id": 300, "state": 2, "status": 4},    # archived
+                                   {"id": 640, "state": 1, "status": 4}],   # also class A
+        })
+        bottles = routine_checks.bottles_to_check(rm, empty_status=5)
+        assert [(item["id"], rule["tag"]) for item, rule in bottles] == [
+            (640, "Peroxide former: A"), (619, "Peroxide former: B")]
+
+    def test_items_with_tag_reads_every_page(self, monkeypatch):
+        asked = []
+
+        def fake_get(url, headers, params):
+            asked.append(params)
+            ids = range(5)[params["offset"]:params["offset"] + params["limit"]]
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: [{"id": i} for i in ids])
+
+        monkeypatch.setattr("eln_common.resourcemanage.requests.get", fake_get)
+        rm = Resource_Manager.__new__(Resource_Manager)  # skip the API-key setup
+        rm.header = {}
+        assert [i["id"] for i in rm.items_with_tag("Peroxide former: B", page_size=2)] == [0, 1, 2, 3, 4]
+        assert [(p["tags[]"], p["offset"]) for p in asked] == [
+            ("Peroxide former: B", 0), ("Peroxide former: B", 2), ("Peroxide former: B", 4)]
+
+
+class TestDueChecks:
+    RUN_DAY = date(2026, 11, 6)  # the first Friday of November
+
+    @staticmethod
+    def step(due, finished=0, check="Test for peroxides (class B)"):
+        return {"id": 1, "body": f"{check}, due {due}", "finished": finished, "deadline": None}
+
+    def report(self, steps):
+        """due_checks for one class B bottle (#622) with these steps."""
+        rm = FakeScannerRM({622: [{"id": 234, "full_path": "Room 3057 > Front hood > Corrosive cabinet"}]})
+        rm.steps = {622: steps}
+        bottles = [({"id": 622, "title": "Tetrahydrofuran"}, routine_checks.rule_for("Peroxide former: B"))]
+        return routine_checks.due_checks(rm, bottles, today=self.RUN_DAY)
+
+    @pytest.mark.parametrize("due, group", [
+        ("2026-10-01", "overdue"),
+        ("2026-11-05", "overdue"),   # yesterday
+        ("2026-11-06", "due"),       # today
+        ("2026-11-30", "due"),       # last day of the month
+        ("2026-12-01", None),        # next month's run
+    ])
+    def test_groups_by_due_date(self, due, group):
+        report = self.report([self.step(due)])
+        assert {g: len(report[g]) for g in ("overdue", "due")} == {
+            "overdue": int(group == "overdue"), "due": int(group == "due")}
+        assert report["problems"] == []
+
+    def test_entry_has_name_check_due_and_place(self):
+        assert self.report([self.step("2026-11-20")])["due"] == [{
+            "id": 622, "title": "Tetrahydrofuran", "check": "Test for peroxides (class B)",
+            "due": "2026-11-20", "place": "Room 3057 > Front hood > Corrosive cabinet"}]
+
+    def test_ticked_steps_and_other_steps_are_ignored(self):
+        report = self.report([self.step("2026-05-20", finished=1),
+                              {"id": 2, "body": "Re-label the bottle", "finished": 0}])
+        assert report == {"overdue": [], "due": [], "problems": []}
+
+    @pytest.mark.parametrize("body", ["Test for peroxides (class B), due soon",
+                                      "Test for peroxides (class B), due 2027-02-30"])
+    def test_unreadable_due_date_is_a_problem(self, body):
+        report = self.report([{"id": 1, "body": body, "finished": 0}])
+        assert report["overdue"] == report["due"] == []
+        assert report["problems"] == [f'#622 Tetrahydrofuran: no due date in "{body}"']
+
+    def test_sorted_earliest_first_and_no_place_is_empty(self):
+        rm = FakeScannerRM({1: [], 2: [{"id": 8, "full_path": "Room 3057 > Shelf"}]})
+        rm.steps = {1: [self.step("2026-11-25")], 2: [self.step("2026-11-10")]}
+        bottles = [({"id": i, "title": "THF"}, None) for i in (1, 2)]
+        due = routine_checks.due_checks(rm, bottles, today=self.RUN_DAY)["due"]
+        assert [(e["id"], e["place"]) for e in due] == [(2, "Room 3057 > Shelf"), (1, "")]
+
+
+class TestFormatReport:
+    RUN_DAY = date(2026, 11, 6)
+
+    @staticmethod
+    def entry(id, due, title="Tetrahydrofuran", place="Room 3057 > Front hood"):
+        return {"id": id, "title": title, "check": "Test for peroxides (class B)", "due": due, "place": place}
+
+    def test_overdue_due_and_problems(self):
+        report = {"overdue": [self.entry(619, "2026-10-01")], "due": [self.entry(622, "2026-11-20")],
+                  "problems": ['#700 Ether: no due date in "Test for peroxides (class A), due soon"']}
+        import eln_common.config as config
+
+        url = config.WEB_URL
+        assert routine_checks.format_report(report, self.RUN_DAY).split("\n") == [
+            "*ELN maintenance: November 2026*",
+            "*Overdue*",
+            f"• <{url}/database.php?mode=view&id=619|#619> Tetrahydrofuran: Test for peroxides (class B), "
+            "due 2026-10-01, Room 3057 &gt; Front hood",
+            "*Due this month* (please do these now)",
+            f"• <{url}/database.php?mode=view&id=622|#622> Tetrahydrofuran: Test for peroxides (class B), "
+            "due 2026-11-20, Room 3057 &gt; Front hood",
+            "*Could not check*",
+            '• #700 Ether: no due date in "Test for peroxides (class A), due soon"',
+            "_Done? Scan it + Tested. Bottle used up? Scan + Mark Empty._",
+        ]
+
+    def test_nothing_due(self):
+        assert routine_checks.format_report({"overdue": [], "due": [], "problems": []}, self.RUN_DAY) == \
+            "*ELN maintenance: November 2026*\nNothing due this month ✓"
+
+    def test_only_problems_does_not_say_nothing_due(self):
+        text = routine_checks.format_report({"overdue": [], "due": [], "problems": ["#1 X: could not read"]},
+                                            self.RUN_DAY)
+        assert "*Could not check*" in text and "Nothing due" not in text and "Scan it" not in text
+
+    def test_instrument_without_a_place(self):
+        entry = {"id": 700, "title": "Rotavap", "check": "Instrument maintenance (every 3 months)",
+                 "due": "2026-11-10", "place": ""}
+        line = routine_checks.format_report({"overdue": [], "due": [entry], "problems": []}, self.RUN_DAY).split("\n")[2]
+        assert line.endswith("|#700> Rotavap: Instrument maintenance (every 3 months), due 2026-11-10")
+
+    def test_slack_formatting_characters_are_escaped(self):
+        report = {"overdue": [], "problems": [],
+                  "due": [self.entry(5, "2026-11-10", title="Sodium & potassium <alloy>", place="Shelf > A")]}
+        line = routine_checks.format_report(report, self.RUN_DAY).split("\n")[2]
+        assert "Sodium &amp; potassium &lt;alloy&gt;:" in line and line.endswith("Shelf &gt; A")
+
+
+class FakeRoutineRM(FakeScannerRM):
+    """FakeScannerRM whose bottles also have tags, for the monthly reminder."""
+
+    def __init__(self, bottles, tagged, steps):
+        super().__init__(bottles)
+        self.tagged, self.steps = tagged, steps
+
+    def items_with_tag(self, tag):
+        return self.tagged.get(tag, [])
+
+
+class TestRoutineChecksRoute:
+    @staticmethod
+    def fake_rm():
+        return FakeRoutineRM(
+            {619: [{"id": 1, "full_path": "Room 3057 > Corrosive cabinet"}],
+             622: [{"id": 2, "full_path": "Room 3057 > Flammable cabinet"}]},
+            {"Peroxide former: B": [{"id": 619, "title": "THF", "state": 1, "status": 4},
+                                    {"id": 622, "title": "THF", "state": 1, "status": 4}]},
+            {619: [{"id": 1, "body": "Test for peroxides (class B), due 2020-01-01", "finished": 0}],
+             622: [{"id": 2, "body": "Test for peroxides (class B), due 2099-01-01", "finished": 0}]})
+
+    def test_posts_the_reminder_to_the_maintenance_channel(self, client, monkeypatch, slack_messages):
+        import web.automation_api as automation_api
+        monkeypatch.setattr(automation_api, "rm", self.fake_rm)
+        resp = client.post("/api/routine_checks", json={})
+        body = resp.get_json()
+        assert resp.status_code == 200
+        assert (body["status"], body["sent"], body["overdue"], body["due"], body["problems"]) == ("ok", True, 1, 0, 0)
+        [(args, kwargs)] = slack_messages
+        assert kwargs == {"channel": "maintenance"} and "|#619> THF" in args[0] and "#622" not in args[0]
+
+    def test_dry_run_previews_another_month_without_posting(self, client, monkeypatch, slack_messages):
+        import web.automation_api as automation_api
+        monkeypatch.setattr(automation_api, "rm", self.fake_rm)
+        resp = client.post("/api/routine_checks", json={"dry_run": True, "today": "2098-12-04"})
+        body = resp.get_json()
+        assert resp.status_code == 200 and body["sent"] is False and slack_messages == []
+        assert body["message"].startswith("*ELN maintenance: December 2098*")
+        assert (body["overdue"], body["due"]) == (1, 0)   # 622 is due in January 2099, next month
+
+    @pytest.mark.parametrize("body", [{"today": "2026-11-06"}, {"dry_run": True, "today": "6 Nov"}])
+    def test_today_needs_dry_run_and_a_date(self, client, body, slack_messages):
+        assert client.post("/api/routine_checks", json=body).status_code == 400
+        assert slack_messages == []
+
+    def test_requires_key(self, client):
+        assert client.post("/api/routine_checks").status_code == 401
+
+    def test_eln_failure_is_reported_to_the_error_channel(self, client, monkeypatch, slack_messages):
+        import web.automation_api as automation_api
+
+        class BrokenRM(FakeRoutineRM):
+            def items_with_tag(self, tag):
+                raise RuntimeError("503 Service Unavailable")
+
+        monkeypatch.setattr(automation_api, "rm", lambda: BrokenRM({}, {}, {}))
+        resp = client.post("/api/routine_checks", json={})
+        assert resp.status_code == 500 and "503" in resp.get_json()["error"]
+        [(args, kwargs)] = slack_messages
+        assert kwargs == {"channel": "error"} and args[0].startswith("Error in routine_checks")
+
+    def test_slack_refusing_both_messages_still_answers(self, client, monkeypatch):
+        import automations.slackbot as slackbot
+        import web.automation_api as automation_api
+
+        def refuse(message, channel):
+            raise RuntimeError(f"Slack did not post the message to '{channel}': not_in_channel")
+
+        monkeypatch.setattr(automation_api, "rm", self.fake_rm)
+        monkeypatch.setattr(slackbot, "send_message", refuse)
+        resp = client.post("/api/routine_checks", json={})
+        error = resp.get_json()["error"]
+        assert resp.status_code == 500
+        assert "'maintenance': not_in_channel" in error and "reporting it to Slack failed too" in error
+
+
+class TestTimerUnits:
+    """Each systemd service in client/ runs a task the client knows, at a route that exists."""
+
+    def test_services_tasks_and_routes_match(self, client):
+        import importlib.util
+        import re
+
+        from eln_common.config import PROJECT_ROOT
+
+        client_dir = PROJECT_ROOT / "client"
+        services = sorted(client_dir.glob("eln-*.service"))
+        assert services, f"no eln-*.service in {client_dir} (mount client/ when testing in Docker)"
+        spec = importlib.util.spec_from_file_location("eln_timer_client", client_dir / "eln_timer_client.py")
+        timer_client = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(timer_client)
+        install = (client_dir / "install.sh").read_text()
+        for service in services:
+            [task] = re.findall(r"^ExecStart=.*eln_timer_client\.py (\w+)$", service.read_text(), re.M)
+            assert task in timer_client.TASKS, service.name
+            assert client.post(f"/api/{task}").status_code == 401, f"/api/{task} (no key → 401, not 404)"
+            assert service.with_suffix(".timer").exists(), service.name
+            assert service.stem in install, f"install.sh does not install {service.stem}"
+
+    def test_routine_checks_timer_is_the_first_friday_in_new_york(self):
+        from eln_common.config import PROJECT_ROOT
+
+        timer = (PROJECT_ROOT / "client" / "eln-routine-checks.timer").read_text()
+        assert "OnCalendar=Fri *-*-01..07 09:00:00 America/New_York" in timer
+        assert "Persistent=true" in timer
 
 
 TODAY = date(2026, 10, 6)
