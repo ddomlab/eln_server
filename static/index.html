@@ -576,7 +576,7 @@
           // the bottle's routine check (e.g. peroxide test) was done today
           const ids = [...registryList.children].map((li) => li.textContent);
           postScanned("/mark_tested", ids, (data) =>
-            ["Tested", ...data.tested.map((t) => `#${t.id} next test due ${t.next_due}`)].join(" · ")
+            ["Tested", ...data.tested.map((t) => `#${t.id} next check due ${t.next_due}`)].join(" · ")
           );
         } else if (val === "mark empty") {
           const ids = [...registryList.children].map((li) => li.textContent);

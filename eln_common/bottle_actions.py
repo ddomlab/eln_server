@@ -92,8 +92,8 @@ def mark_open(rm: Resource_Manager, ids: list[int], open_status: int,
 
 def mark_tested(rm: Resource_Manager, ids: list[int], today: date | None = None) -> dict[str, Any]:
     """
-    Records that each bottle's routine check was done today: ticks its open check step
-    and adds the next one, due `every_months` from today.
+    Records that each bottle's routine check (or instrument's maintenance) was done today:
+    ticks its open check step and adds the next one, due `every_months` from today.
         :return: {"tested": [{id, step, next_due}], "problems": [messages]}
     """
     today = today or date.today()
@@ -103,10 +103,13 @@ def mark_tested(rm: Resource_Manager, ids: list[int], today: date | None = None)
             item = rm.get_item(item_id)
             rule = routine_checks.rule_for(item.get("tags"))
             if rule is None:
-                problems.append(f"#{item_id} has no routine check (no tag like 'Peroxide former: B')")
+                problems.append(f"#{item_id} has no routine check "
+                                "(no tag like 'Peroxide former: B' or 'Maintenance: every 6 months')")
                 continue
-            opened = json.loads(item.get("metadata") or "{}").get("extra_fields", {}).get("Opened", {})
-            if not opened.get("value"):
+            # a bottle is checked once it is open; an instrument has no Opened field
+            # (its first maintenance step is added when it is created)
+            extra_fields = json.loads(item.get("metadata") or "{}").get("extra_fields", {})
+            if "Opened" in extra_fields and not extra_fields["Opened"].get("value"):
                 problems.append(f"#{item_id} is not marked open yet: use Mark Open first")
                 continue
             for step in routine_checks.open_check_steps(rm.get_steps(item_id)):

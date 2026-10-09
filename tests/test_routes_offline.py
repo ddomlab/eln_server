@@ -1372,6 +1372,19 @@ class TestBottleLifecycle:
         assert "not marked open yet" in result["problems"][1]
         assert result["problems"][2].startswith("#999")
 
+    def test_tested_works_for_an_instrument(self):
+        # an instrument has no Opened field: Tested ticks its maintenance step without Mark Open
+        rm = FakeBottleItemsRM({627: ("Maintenance: every 6 months", "")})
+        rm.get_item = lambda id: {"id": id, "tags": "Maintenance: every 6 months", "metadata": json.dumps(
+            {"extra_fields": {"Room": {"value": "3053"}, "Maintenance interval": {"value": "Every 6 months"}}})}
+        routine_checks.schedule(rm, 627, routine_checks.rule_for("Maintenance: every 6 months"), date(2026, 10, 8))
+        result = bottle_actions.mark_tested(rm, [627], today=date(2027, 4, 1))
+        assert result == {"tested": [{"id": 627, "step": "Instrument maintenance (every 6 months)",
+                                      "next_due": "2027-10-01"}], "problems": []}
+        assert [(s["finished"], s["body"]) for s in rm.steps[627]] == [
+            (1, "Instrument maintenance (every 6 months), due 2027-04-08"),
+            (0, "Instrument maintenance (every 6 months), due 2027-10-01")]
+
     def test_empty_bottle_without_steps_is_fine(self):
         rm = FakeBottleItemsRM({72: ("Flammable", "2026-09-01")})
         assert bottle_actions.mark_empty(rm, [72], empty_status=5, today=TODAY) == {"emptied": [72], "problems": []}
