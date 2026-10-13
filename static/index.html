@@ -759,7 +759,8 @@
             } else if (data.problems.length) {
               error(data.problems.join(" · "));
             } else {
-              success("Moved to " + data.place.split(" > ").join(" › "));
+              // labels print the place, so a moved bottle's label is now out of date
+              success("Moved to " + data.place.split(" > ").join(" › ") + " · Print to update their labels");
               popup.style.display = "none";
               if (focusOnInput) inputProcessor.focus();
             }
