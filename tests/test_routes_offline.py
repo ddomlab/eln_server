@@ -322,6 +322,25 @@ class TestLabelGenerator:
         gen.add_item(393)
         assert gen.records[0]["received_date"] == ""
 
+    @pytest.mark.parametrize("containers, place", [
+        ([{"full_path": "Room 3057 > Front hood > Flammable cabinet"}], "Front hood › Flammable cabinet"),
+        ([{"full_path": "Room 3053 > Yellow cabinet"}], "Yellow cabinet"),
+        ([{"full_path": "Room 3053"}], ""),                      # only a room: nothing to show
+        ([], ""),                                                 # instruments have no place
+        ([{"full_path": "Room 3053 > Shelf A"}, {"full_path": "Room 3057 > Fridge"}], "Shelf A; Fridge"),
+    ])
+    def test_label_place_leaves_out_the_room(self, containers, place):
+        from automations.labels.generate_label import label_place
+        assert label_place(containers) == place
+
+    def test_label_shows_the_place(self):
+        rm = FakeRM(item={"id": 348, "title": "THF", "category": 2, "metadata": None,
+                          "containers": [{"full_path": "Room 3057 > Rear hood > Flammable cabinet"}]})
+        gen = LabelGenerator(rm)  # type: ignore[arg-type]
+        gen.add_item(348)
+        assert gen.records[0]["place"] == "Rear hood › Flammable cabinet"
+        assert gen.pdf().startswith(b"%PDF")
+
 
 class TestLookupLists:
     """The add-resource page loads existing compounds and storage places into dropdowns."""

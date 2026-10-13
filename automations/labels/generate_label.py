@@ -7,6 +7,18 @@ from pathlib import Path
 current_dir = Path(__file__).parent
 
 
+def label_place(containers: list[dict]) -> str:
+    """Where the bottle is kept, without the room (the first part of the storage path):
+    "Room 3057 > Front hood > Flammable cabinet" -> "Front hood › Flammable cabinet".
+    Empty when it has no place (instruments) or is only in a room."""
+    places = []
+    for entry in containers:
+        inside = (entry.get("full_path") or "").split(" > ")[1:]
+        if inside:
+            places.append(" › ".join(inside))
+    return "; ".join(places)
+
+
 class LabelGenerator:
     def __init__(self, rm: Resource_Manager):
         self.label_writer = LabelWriter(
@@ -33,6 +45,7 @@ class LabelGenerator:
                 id_num=id,
                 name=item["title"],
                 received_date=date,
+                place=label_place(item.get("containers") or []),
                 qr_text=config.item_web_url(id),
             )
         )

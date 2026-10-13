@@ -2,6 +2,7 @@
 <span class='label'>
     {{ name }}<br/>
     id: {{ id_num }} <br/>
+    {% if place %}<div class="place">{{ place }}</div>{% endif %}
     {% if received_date %}
     <div class="extra_info">
     Received: {{ received_date }}<br/>

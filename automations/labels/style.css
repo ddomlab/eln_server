@@ -15,6 +15,15 @@ img {
     vertical-align: middle;
     display: inline-block;
     font-size: 10px;
+    line-height: 1.15;
+    /* the column next to the QR code: long text wraps here instead of the whole
+       block dropping below the code and being cut off */
+    width: 41mm;
+    overflow-wrap: anywhere;
+}
+
+.place {
+    font-size: 8px;
 }
 
 .extra_info {
