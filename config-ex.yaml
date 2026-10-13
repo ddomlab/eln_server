@@ -27,6 +27,11 @@ printer_path: /tmp/label.pdf
 status_open: 4
 # Status a resource gets when marked as empty
 status_empty: 5
+# "Working" (new instruments; an instrument whose check passes) and "Out of service"
+# (an item whose check failed): create these statuses in eLabFTW (Resources >
+# statuses) and put their IDs here. Without them, Failed is refused.
+status_working:
+status_out_of_service:
 # Resource categories that hold chemicals
 chemical_categories: [2, 3]
 # Resource categories whose printed labels show a "Received" date

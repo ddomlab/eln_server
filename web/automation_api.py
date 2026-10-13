@@ -78,6 +78,7 @@ def routine_checks_reminder():
     try:
         bottles = routine_checks.bottles_to_check(rmn, config.setting("status_empty", 5))
         report = routine_checks.due_checks(rmn, bottles, today)
+        report["out_of_service"] = routine_checks.out_of_service(rmn, config.setting("status_out_of_service", None))
         message = routine_checks.format_report(report, today)
         if not dry_run:
             slackbot.send_message(message, channel=slackbot.MAINTENANCE_CHANNEL)

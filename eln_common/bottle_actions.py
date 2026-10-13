@@ -55,10 +55,11 @@ def move_bottles(rm: Resource_Manager, ids: list[int], storage_id: int) -> dict[
 
 
 def mark_open(rm: Resource_Manager, ids: list[int], open_status: int,
-              today: date | None = None) -> dict[str, Any]:
+              today: date | None = None, out_of_service_status: int | None = None) -> dict[str, Any]:
     """
     Marks each bottle as opened today (its Opened field and status) and, if it has a
-    routine check (e.g. tag "Peroxide former: B"), adds the first check step.
+    routine check (e.g. tag "Peroxide former: B"), adds the first check step. A bottle
+    that is out of service (it failed its check) is not opened.
         :return: {"opened": [ids], "checks": [{id, step, due}], "problems": [messages]}
     """
     today = today or date.today()
@@ -66,6 +67,9 @@ def mark_open(rm: Resource_Manager, ids: list[int], open_status: int,
     for item_id in ids:
         try:
             item = rm.get_item(item_id)
+            if out_of_service_status and item.get("status") == out_of_service_status:
+                problems.append(f"#{item_id} is out of service (it failed its check): do not use it")
+                continue
             metadata = json.loads(item.get("metadata") or "{}")
             field = metadata.get("extra_fields", {}).get("Opened")
             if field is None:
@@ -90,10 +94,37 @@ def mark_open(rm: Resource_Manager, ids: list[int], open_status: int,
     return {"opened": opened, "checks": checks, "problems": problems}
 
 
-def mark_tested(rm: Resource_Manager, ids: list[int], today: date | None = None) -> dict[str, Any]:
+def is_instrument(item: dict[str, Any]) -> bool:
+    """An instrument has no Opened field (bottles do: see mark_open)."""
+    return "Opened" not in json.loads(item.get("metadata") or "{}").get("extra_fields", {})
+
+
+def close_check_steps(rm: Resource_Manager, item_id: int, result: str) -> int:
+    """Ticks the item's open check steps, adding the result to each one's text
+    ("..., due 2027-04-09: passed 2026-10-13. Replaced O-rings").
+        :return: How many steps were closed."""
+    steps = routine_checks.open_check_steps(rm.get_steps(item_id))
+    for step in steps:
+        rm.set_step(item_id, step["id"], {"body": f"{step['body']}: {result}"})
+        rm.finish_step(item_id, step["id"])
+    return len(steps)
+
+
+def result_text(word: str, today: date, notes: str) -> str:
+    """ "passed 2026-10-13. Replaced O-rings" """
+    notes = " ".join((notes or "").split())  # one line, as a step is
+    return f"{word} {today.isoformat()}" + (f". {notes}" if notes else "")
+
+
+def mark_tested(rm: Resource_Manager, ids: list[int], today: date | None = None, notes: str = "",
+                working_status: int | None = None, open_status: int | None = None,
+                out_of_service_status: int | None = None) -> dict[str, Any]:
     """
-    Records that each bottle's routine check (or instrument's maintenance) was done today:
-    ticks its open check step and adds the next one, due `every_months` from today.
+    Records that each bottle's routine check (or instrument's maintenance) was done today
+    and PASSED: ticks its open check step (with the notes) and adds the next one, due
+    one interval from today. An instrument becomes Working (this is also how one that was
+    out of service comes back after its repair); a bottle that was out of service
+    becomes Opened again.
         :return: {"tested": [{id, step, next_due}], "problems": [messages]}
     """
     today = today or date.today()
@@ -102,6 +133,14 @@ def mark_tested(rm: Resource_Manager, ids: list[int], today: date | None = None)
         try:
             item = rm.get_item(item_id)
             rule = routine_checks.rule_for(item.get("tags"))
+            repaired = bool(out_of_service_status) and item.get("status") == out_of_service_status
+            if rule is None and repaired:
+                # failed outside a schedule (no interval): back in use, nothing to schedule
+                step_id = rm.add_step(item_id, f"Check {result_text('passed', today, notes)}")
+                rm.finish_step(item_id, step_id)
+                rm.change_item(item_id, {"status": working_status if is_instrument(item) else open_status})
+                tested.append({"id": item_id, "step": "", "next_due": None})
+                continue
             if rule is None:
                 problems.append(f"#{item_id} has no routine check "
                                 "(no tag like 'Peroxide former: B' or 'Maintenance: every 6 months')")
@@ -112,13 +151,51 @@ def mark_tested(rm: Resource_Manager, ids: list[int], today: date | None = None)
             if "Opened" in extra_fields and not extra_fields["Opened"].get("value"):
                 problems.append(f"#{item_id} is not marked open yet: use Mark Open first")
                 continue
-            for step in routine_checks.open_check_steps(rm.get_steps(item_id)):
-                rm.finish_step(item_id, step["id"])
+            result = result_text("passed", today, notes)
+            if not close_check_steps(rm, item_id, result):  # e.g. re-tested after a failed check
+                step_id = rm.add_step(item_id, f"Check {result}")
+                rm.finish_step(item_id, step_id)
             due = routine_checks.schedule(rm, item_id, rule, today)
+            if is_instrument(item):
+                status = working_status
+            elif out_of_service_status and item.get("status") == out_of_service_status:
+                status = open_status
+            else:
+                status = None
+            if status and item.get("status") != status:
+                rm.change_item(item_id, {"status": status})
             tested.append({"id": item_id, "step": rule["step"], "next_due": due.isoformat()})
         except Exception as e:
             problems.append(f"#{item_id}: recording the test failed: {e}")
     return {"tested": tested, "problems": problems}
+
+
+def mark_failed(rm: Resource_Manager, ids: list[int], out_of_service_status: int,
+                today: date | None = None, notes: str = "") -> dict[str, Any]:
+    """
+    Records that each item's check FAILED today: ticks its open check step with the result
+    and notes (or, without one, adds a ticked step saying so, for the record), schedules
+    no next check, and sets the status to Out of service. An instrument comes back with
+    a passed check after its repair (mark_tested); a bottle is marked empty once it is
+    disposed of.
+        :return: {"failed": [{id, title, check, place}], "problems": [messages]}, for the alert
+    """
+    today = today or date.today()
+    failed, problems = [], []
+    for item_id in ids:
+        try:
+            item = rm.get_item(item_id)
+            result = result_text("FAILED", today, notes)
+            if not close_check_steps(rm, item_id, result):
+                step_id = rm.add_step(item_id, f"Check {result}")
+                rm.finish_step(item_id, step_id)
+            rm.change_item(item_id, {"status": out_of_service_status})
+            rule = routine_checks.rule_for(item.get("tags"))
+            failed.append({"id": item_id, "title": item.get("title", ""), "check": rule["step"] if rule else "",
+                           "place": routine_checks.place(rm, item_id)})
+        except Exception as e:
+            problems.append(f"#{item_id}: recording the failed check failed: {e}")
+    return {"failed": failed, "problems": problems}
 
 
 def mark_empty(rm: Resource_Manager, ids: list[int], empty_status: int,

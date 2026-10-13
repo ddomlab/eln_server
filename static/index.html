@@ -179,6 +179,20 @@
         margin-top: 10px;
       }
 
+      #popupExtra input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        margin-top: 8px;
+        font-size: 15px;
+      }
+
+      #popupExtra small {
+        display: block;
+        margin-top: 6px;
+        color: #555;
+      }
+
       #popupClose {
         margin-top: 15px;
         text-align: center;
@@ -304,7 +318,8 @@
     </div>
 
     <div id="popup">
-      <h3>Storage places: scan one to move the bottles there</h3>
+      <h3 id="popupTitle">Storage places: scan one to move the bottles there</h3>
+      <div id="popupExtra"></div>
       <div id="popupGrid"></div>
       <div id="popupClose">Close</div>
     </div>
@@ -445,7 +460,7 @@
         speechSynthesis.speak(utterance);
       }
 
-      function error(errorMessage = "Failed!") {
+      function error(errorMessage = "Failed!", showMs = 1800) {
         const popup = document.getElementById("unsuccessPopup");
         popup.textContent = errorMessage;
         popup.style.display = "block";
@@ -453,10 +468,10 @@
         beep(440, 370, "square");
         setTimeout(() => {
           popup.style.opacity = "0";
-        }, 1200);
+        }, showMs - 600);
         setTimeout(() => {
           popup.style.display = "none";
-        }, 1800);
+        }, showMs);
       }
 
       function addToRegistry(num) {
@@ -472,7 +487,7 @@
               speak("removed");
             }
           });
-          return;
+          return false;
         }
         if (registryMode === "single") {
           const occupied = registryList.innerHTML !== "";
@@ -487,6 +502,7 @@
         const li = document.createElement("li");
         li.textContent = num;
         registryList.appendChild(li);
+        return true;
       }
 
       function handleInputSubmission(value) {
@@ -573,11 +589,10 @@
             return ["Marked open", ...due].join(" · ");
           });
         } else if (val === "tested") {
-          // the bottle's routine check (e.g. peroxide test) was done today
-          const ids = [...registryList.children].map((li) => li.textContent);
-          postScanned("/mark_tested", ids, (data) =>
-            ["Tested", ...data.tested.map((t) => `#${t.id} next check due ${t.next_due}`)].join(" · ")
-          );
+          // the routine check (peroxide test, maintenance) was done today: ask the result
+          openTestedPopup();
+        } else if (val === "passed" || val === "failed") {
+          submitTestResult(val);
         } else if (val === "mark empty") {
           const ids = [...registryList.children].map((li) => li.textContent);
           fetch("/mark_empty", {
@@ -612,7 +627,7 @@
           // a storage place's QR code: move the bottles in the list there
           moveToStorage(parseInt(val.split("storage=")[1], 10));
         }else if (!isNaN(val) && val !== "") {
-          addToRegistry(val);
+          if (addToRegistry(val)) warnIfOutOfService(val); // not when a second scan removes it
         } else {
           console.error("Invalid input:", value);
           error("Invalid input. Please try again.");
@@ -641,6 +656,88 @@
             else success(successText(data));
           })
           .catch(() => error("Failed"));
+      }
+
+      // the result of a routine check: two scannable answers and optional notes,
+      // for everything in the list
+      let testedIds = null;
+      function openTestedPopup() {
+        const ids = [...registryList.children].map((li) => li.textContent);
+        if (ids.length === 0) {
+          error("Scan the bottles or instruments first");
+          return;
+        }
+        testedIds = ids;
+        document.getElementById("popupTitle").textContent =
+          `Check result for ${ids.map((id) => "#" + id).join(", ")}: scan or click one`;
+        document.getElementById("popupExtra").innerHTML =
+          '<input id="testNotes" maxlength="500" placeholder="Notes (optional), e.g. replaced O-rings">' +
+          (ids.length > 1 ? "<small>The result applies to all of them. Mixed results? Do them one at a time.</small>" : "");
+        popupGrid.innerHTML = "";
+        ["Passed", "Failed"].forEach((caption) => {
+          const container = document.createElement("div");
+          container.className = "qrItem";
+          popupGrid.appendChild(container);
+          renderQRCode(container, caption);
+        });
+        // scanning while typing a note lands in the box: "...O-rings Passed" + Enter
+        document.getElementById("testNotes").addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          const match = event.target.value.match(/^(.*?)\s*(passed|failed)$/i);
+          if (match) {
+            event.target.value = match[1];
+            submitTestResult(match[2].toLowerCase());
+          }
+        });
+        popup.style.display = "block";
+      }
+
+      function closePopup() {
+        popup.style.display = "none";
+        document.getElementById("popupExtra").innerHTML = "";
+        document.getElementById("popupTitle").textContent =
+          "Storage places: scan one to move the bottles there";
+        testedIds = null;
+        if (focusOnInput) inputProcessor.focus();
+      }
+
+      function submitTestResult(result) {
+        if (!testedIds) {
+          error("Scan Tested first");
+          return;
+        }
+        const ids = testedIds;
+        const notesBox = document.getElementById("testNotes");
+        const notes = notesBox ? notesBox.value.trim() : "";
+        closePopup();
+        fetch("/mark_tested", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: ids, result, notes }),
+        })
+          .then(async (response) => {
+            const data = await response.json();
+            if (!response.ok) error(data.error || "Failed");
+            else if (data.problems.length) error(data.problems.join(" · "), 6000);
+            else if (result === "passed")
+              success(["Passed", ...data.tested.map((t) =>
+                t.next_due ? `#${t.id} next check due ${t.next_due}` : `#${t.id} back in use`)].join(" · "));
+            else success(`Failed: ${data.failed.map((f) => "#" + f.id).join(", ")} now Out of service (Slack alerted)`);
+          })
+          .catch(() => error("Failed"));
+      }
+
+      // a scanned resource that failed its check: warn right away, and keep it in the list
+      function warnIfOutOfService(id) {
+        fetch(`/resource_status?id=${encodeURIComponent(id)}`)
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.out_of_service) {
+              error(`#${data.id} ${data.title} is OUT OF SERVICE: do not use it`, 6000);
+              speak("Out of service");
+            }
+          })
+          .catch(() => {}); // the warning is a help; the scan itself already worked
       }
 
       // POST /move_to_storage: move every bottle in the list to the scanned place
@@ -682,6 +779,7 @@
               error(places.error || "Could not load the storage places");
               return;
             }
+            closePopup(); // a Tested pop-up left open is replaced
             popup.style.display = "block";
             popupGrid.innerHTML = "";
             places
@@ -956,13 +1054,11 @@
       });
       drawCommands();
 
-      popupClose.addEventListener("click", () => {
-        popup.style.display = "none";
-        if (focusOnInput) inputProcessor.focus();
-      });
+      popupClose.addEventListener("click", closePopup);
 
-      window.addEventListener("click", () => {
-        if (focusOnInput) {
+      window.addEventListener("click", (event) => {
+        // clicking into the notes box must not send the cursor back to the scan field
+        if (focusOnInput && event.target.id !== "testNotes") {
           inputProcessor.focus();
         }
       });

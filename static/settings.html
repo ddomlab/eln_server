@@ -80,6 +80,18 @@
   </div>
 
   <div class="field">
+    <label for="status_working">"Working" status</label>
+    <small>For new instruments, and an instrument whose check passes.</small>
+    <select id="status_working"></select>
+  </div>
+
+  <div class="field">
+    <label for="status_out_of_service">"Out of service" status</label>
+    <small>Applied when a check fails (Tested &rarr; Failed).</small>
+    <select id="status_out_of_service"></select>
+  </div>
+
+  <div class="field">
     <label for="chemical_categories">Chemical categories</label>
     <small>Resource categories that hold chemicals.</small>
     <select id="chemical_categories" multiple></select>
@@ -105,7 +117,10 @@
 
     const apiKeyInput = document.getElementById("apiKey");
     const result = document.getElementById("result");
-    const statusSelects = ["status_open", "status_empty"];
+    const statusSelects = ["status_open", "status_empty", "status_working", "status_out_of_service"];
+    // these may be left unset (then they are not saved), so a missing status is not
+    // quietly replaced by the first one in the list
+    const optionalSelects = ["status_working", "status_out_of_service"];
     const categorySelects = ["chemical_categories", "label_date_categories"];
 
     function report(message, ok) {
@@ -116,6 +131,12 @@
     function fillSelect(id, options, selected) {
       const select = document.getElementById(id);
       select.innerHTML = "";
+      if (optionalSelects.includes(id)) {
+        const none = document.createElement("option");
+        none.value = "";
+        none.textContent = "(not set)";
+        select.append(none);
+      }
       options.forEach((opt) => {
         const o = document.createElement("option");
         o.value = opt.id;
@@ -157,7 +178,8 @@
     document.getElementById("save").addEventListener("click", () => {
       const body = {};
       statusSelects.forEach((id) => {
-        body[id] = parseInt(document.getElementById(id).value, 10);
+        const value = document.getElementById(id).value;
+        if (value !== "") body[id] = parseInt(value, 10);
       });
       categorySelects.forEach((id) => {
         body[id] = [...document.getElementById(id).selectedOptions].map((o) =>

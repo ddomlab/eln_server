@@ -391,6 +391,21 @@ class Resource_Manager:
             if len(page) < page_size:
                 return items
 
+    def items_with_status(self, status: int, page_size: int = 100) -> list[dict[str, Any]]:
+        """Current resources (not archived) with this status, as eLabFTW lists them. Reads
+        every page of the list and keeps the matches (a few hundred resources)."""
+        items: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            response = requests.get(config.URL + "/items", headers=self.header,
+                                    params={"limit": page_size, "offset": offset})
+            response.raise_for_status()
+            page = response.json()
+            items += [i for i in page if i.get("status") == status and i.get("state") == 1]
+            offset += len(page)
+            if len(page) < page_size:
+                return items
+
     def get_uploaded_files(self, id:int, resource_type:str="items") -> list:
         """
         Gets a list of uploaded files in the ELN with the given ID.

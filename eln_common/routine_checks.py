@@ -183,9 +183,19 @@ def place(rm: Resource_Manager, item_id: int) -> str:
     return "; ".join(c.get("full_path") or c.get("storage_name") or "?" for c in containers)
 
 
+def out_of_service(rm: Resource_Manager, status: int | None) -> list[dict[str, Any]]:
+    """The resources that are out of service (they failed a check), for the monthly
+    message: [{id, title, place}], by number. Empty if no such status is configured."""
+    if not status:
+        return []
+    return [{"id": i["id"], "title": i.get("title", ""), "place": place(rm, i["id"])}
+            for i in sorted(rm.items_with_status(status), key=lambda i: i["id"])]
+
+
 def format_report(report: dict[str, list], today: date) -> str:
     """The Slack message for a due_checks report: overdue, due this month and any
-    bottles that could not be checked, or "Nothing due this month"."""
+    bottles that could not be checked, or "Nothing due this month"; then whatever is
+    out of service (report["out_of_service"], if given), so it is not forgotten."""
     lines = [f"*ELN maintenance: {today:%B %Y}*"]
     for group, heading in (("overdue", "*Overdue*"), ("due", "*Due this month* (please do these now)")):
         if report[group]:
@@ -200,6 +210,23 @@ def format_report(report: dict[str, list], today: date) -> str:
         lines.append("_Done? Scan it + Tested. Bottle used up? Scan + Mark Empty._")
     elif not report["problems"]:
         lines.append("Nothing due this month ✓")
+    if report.get("out_of_service"):
+        lines.append("*Out of service* (failed a check; scan + Tested → Passed once fixed, "
+                     "or Mark Empty once disposed of)")
+        lines += [f"• <{config.item_web_url(e['id'])}|#{e['id']}> {slack_text(e['title'])}"
+                  + (f", {slack_text(e['place'])}" if e["place"] else "") for e in report["out_of_service"]]
+    return "\n".join(lines)
+
+
+def failed_alert(failed: list[dict[str, Any]], notes: str = "") -> str:
+    """The Slack alert sent right away when items fail their check (bottle_actions.mark_failed)."""
+    lines = ["⚠️ *Failed check: now Out of service*"]
+    lines += [f"• <{config.item_web_url(e['id'])}|#{e['id']}> {slack_text(e['title'])}"
+              + (f": {slack_text(e['check'])}" if e["check"] else "")
+              + (f", {slack_text(e['place'])}" if e["place"] else "") for e in failed]
+    if notes.strip():
+        lines.append(f"Notes: {slack_text(' '.join(notes.split()))}")
+    lines.append("_Do not use it. Once fixed: scan + Tested → Passed. A bottle: dispose of it, then scan + Mark Empty._")
     return "\n".join(lines)
 
 

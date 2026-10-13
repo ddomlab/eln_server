@@ -134,7 +134,8 @@ def procedure_html(procedure: str) -> str:
     return f"<h2>{PROCEDURE_HEADING}</h2>\n{body}"
 
 
-def create_instrument(rm: Resource_Manager, data: dict[str, Any], today: date | None = None) -> dict[str, Any]:
+def create_instrument(rm: Resource_Manager, data: dict[str, Any], today: date | None = None,
+                      working_status: int | None = None) -> dict[str, Any]:
     """
     Creates one instrument from a request like
         {"category": 1, "title": "Vacuum pump", "procedure": "1. Switch off...",
@@ -150,6 +151,8 @@ def create_instrument(rm: Resource_Manager, data: dict[str, Any], today: date | 
 
     changes = {"title": request["title"],
                "metadata": instrument_metadata(request["metadata"], request["fields"])}
+    if working_status:  # a new instrument is Working (Out of service once a check fails)
+        changes["status"] = working_status
     if request["procedure"]:  # otherwise the template's main text (the empty heading) stays
         changes["body"] = procedure_html(request["procedure"])
     try:

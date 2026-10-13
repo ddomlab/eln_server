@@ -6,6 +6,7 @@ from flask import Blueprint, current_app, jsonify, redirect, request, send_file,
 from flask_cors import cross_origin
 from requests import HTTPError
 
+import automations.slackbot as slackbot
 import eln_common.add_bottle as add_bottle
 import eln_common.add_instrument as add_instrument
 import eln_common.bottle_actions as bottle_actions
@@ -13,6 +14,7 @@ import eln_common.compound_import as compound_import
 import eln_common.bottle_tags as bottle_tags
 import eln_common.config as config
 import eln_common.pubchem as pubchem
+import eln_common.routine_checks as routine_checks
 import eln_common.storage_places as storage_places
 import web.label_creating as label_creating
 import web.print_handling as print_handling
@@ -300,6 +302,8 @@ def create_storage_unit():
 SETTINGS_SCHEMA = {
     "status_open": int,
     "status_empty": int,
+    "status_working": int,
+    "status_out_of_service": int,
     "chemical_categories": lambda v: [int(x) for x in v],
     "label_date_categories": lambda v: [int(x) for x in v],
 }
@@ -337,7 +341,7 @@ def get_resources():
 def settings():
     """GET: the current team-ID settings. POST: update them in config.yaml
     (requires a working eLabFTW API key, since this changes server behavior)."""
-    defaults = {"status_open": 4, "status_empty": 5,
+    defaults = {"status_open": 4, "status_empty": 5, "status_working": None, "status_out_of_service": None,
                 "chemical_categories": [2, 3], "label_date_categories": [2, 3, 4]}
     if request.method == 'GET':
         return jsonify({k: config.setting(k, d) for k, d in defaults.items()})
@@ -459,24 +463,65 @@ def mark_open():
         rmn = rm()
     except ValueError as e:
         return jsonify({"error": str(e)}), 401
-    return jsonify(bottle_actions.mark_open(rmn, ids, config.setting("status_open", 4)))
+    return jsonify(bottle_actions.mark_open(rmn, ids, config.setting("status_open", 4),
+                                            out_of_service_status=config.setting("status_out_of_service", None)))
 
 
 @interface_bp.route('/mark_tested', methods=['POST'])
 @cross_origin(origins="http://localhost:8000")
 def mark_tested():
-    """Records that the scanned bottles' routine check was done today: {id: [ids]}. Ticks the
-    open check step and adds the next one. 200 with {tested, problems}."""
+    """Records the result of the scanned items' routine check, done today:
+    {id: [ids], result: "passed" | "failed", notes: "..."} (result defaults to passed).
+    Passed: ticks the open check step and adds the next one; instruments become Working.
+    Failed: ticks it, sets Out of service and posts a Slack alert right away.
+    200 with {tested, problems} or {failed, problems}."""
     data = request.get_json(force=True, silent=True) or {}
     try:
         ids = _id_list(data)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    result = data.get("result", "passed")
+    notes = data.get("notes") or ""
+    if result not in ("passed", "failed") or not isinstance(notes, str):
+        return jsonify({"error": 'result must be "passed" or "failed", and notes text'}), 400
+    out_of_service = config.setting("status_out_of_service", None)
+    if result == "failed" and not out_of_service:
+        return jsonify({"error": "No Out of service status is set up (status_out_of_service in config.yaml)"}), 500
     try:
         rmn = rm()
     except ValueError as e:
         return jsonify({"error": str(e)}), 401
-    return jsonify(bottle_actions.mark_tested(rmn, ids))
+    if result == "passed":
+        return jsonify(bottle_actions.mark_tested(
+            rmn, ids, notes=notes, working_status=config.setting("status_working", None),
+            open_status=config.setting("status_open", 4), out_of_service_status=out_of_service))
+    outcome = bottle_actions.mark_failed(rmn, ids, out_of_service, notes=notes)
+    if outcome["failed"]:
+        try:
+            slackbot.send_message(routine_checks.failed_alert(outcome["failed"], notes),
+                                  channel=slackbot.MAINTENANCE_CHANNEL)
+        except Exception as e:
+            outcome["problems"].append(f"Marked out of service, but the Slack alert was not sent: {e}")
+    return jsonify(outcome)
+
+
+@interface_bp.route('/resource_status', methods=['GET'])
+def resource_status():
+    """A scanned resource's status, for the scanner page's out-of-service warning:
+    ?id=7 -> {id, title, status, out_of_service}."""
+    try:
+        item_id = int(request.args.get("id", ""))
+    except ValueError:
+        return jsonify({"error": "id must be a number"}), 400
+    try:
+        item = rm().get_item(item_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+    except Exception as e:
+        return jsonify({"error": f"#{item_id}: {e}"}), 404
+    out_of_service = config.setting("status_out_of_service", None)
+    return jsonify({"id": item_id, "title": item.get("title", ""), "status": item.get("status_title"),
+                    "out_of_service": bool(out_of_service) and item.get("status") == out_of_service})
 
 
 @interface_bp.route('/move_to_storage', methods=['POST'])
@@ -542,7 +587,7 @@ def create_resource():
         return jsonify({"status": "error", "error": str(e)}), 401
     try:
         if add_instrument.is_instrument(rmn, data.get("category")):
-            result = add_instrument.create_instrument(rmn, data)
+            result = add_instrument.create_instrument(rmn, data, working_status=config.setting("status_working", None))
         else:
             result = add_bottle.create_bottles(rmn, data)
     except add_bottle.InvalidBottle as e:

@@ -189,7 +189,8 @@ class TestTeamIdSettings:
         assert resp.status_code == 200
         settings = resp.get_json()
         assert set(settings) == {
-            "status_open", "status_empty", "chemical_categories", "label_date_categories"
+            "status_open", "status_empty", "status_working", "status_out_of_service",
+            "chemical_categories", "label_date_categories"
         }
         assert isinstance(settings["status_open"], int)
         assert isinstance(settings["chemical_categories"], list)
@@ -1691,7 +1692,7 @@ class TestBottleLifecycle:
         assert tested == {"tested": [{"id": 522, "step": "Test for peroxides (class B)",
                                       "next_due": "2027-10-02"}], "problems": []}
         assert [(s["finished"], s["body"]) for s in rm.steps[522]] == [
-            (1, "Test for peroxides (class B), due 2027-04-06"),
+            (1, "Test for peroxides (class B), due 2027-04-06: passed 2027-04-02"),
             (0, "Test for peroxides (class B), due 2027-10-02")]
 
         bottle_actions.mark_empty(rm, [522], empty_status=5, today=date(2027, 7, 15))
@@ -1728,7 +1729,7 @@ class TestBottleLifecycle:
         assert result == {"tested": [{"id": 627, "step": "Instrument maintenance (every 6 months)",
                                       "next_due": "2027-10-01"}], "problems": []}
         assert [(s["finished"], s["body"]) for s in rm.steps[627]] == [
-            (1, "Instrument maintenance (every 6 months), due 2027-04-08"),
+            (1, "Instrument maintenance (every 6 months), due 2027-04-08: passed 2027-04-01"),
             (0, "Instrument maintenance (every 6 months), due 2027-10-01")]
 
     def test_empty_bottle_without_steps_is_fine(self):
@@ -1743,6 +1744,195 @@ class TestBottleLifecycle:
         resp = client.post("/mark_tested", json={"id": [522]})
         assert resp.status_code == 200 and resp.get_json()["tested"][0]["id"] == 522
         assert client.post("/mark_tested", json={"id": []}).status_code == 400
+
+
+OPEN, EMPTY, WORKING, OUT_OF_SERVICE = 4, 5, 10, 11
+
+
+class FakeCheckRM(FakeScannerRM):
+    """Bottles and instruments with tags, a status and (bottles only) an Opened field."""
+
+    def __init__(self, items):
+        super().__init__({i: [{"id": 234, "full_path": "Room 3053 > Bench"}] for i in items})
+        self.items = items  # id -> {"title", "tags", "status", "opened" (bottles only)}
+
+    def get_item(self, id):
+        if id not in self.items:
+            raise RuntimeError("404 Not Found")
+        item = self.items[id]
+        fields = {"Room": {"value": "3053"}}
+        if "opened" in item:
+            fields["Opened"] = {"value": item["opened"]}
+        return {"id": id, "title": item["title"], "tags": item["tags"], "status": item["status"],
+                "status_title": {OUT_OF_SERVICE: "Out of service", WORKING: "Working"}.get(item["status"], "Opened"),
+                "containers": self.bottles[id], "metadata": json.dumps({"extra_fields": fields})}
+
+    def change_item(self, id, body):
+        super().change_item(id, body)
+        if "status" in body:
+            self.items[id]["status"] = body["status"]
+
+
+def opentrons(status=WORKING):
+    return {"title": "Opentrons Flex", "tags": "Maintenance: every 6 months", "status": status}
+
+
+def thf(status=OPEN):
+    return {"title": "THF", "tags": "Peroxide former: B", "status": status, "opened": "2026-04-01"}
+
+
+class TestCheckResults:
+    """Tested asks Passed or Failed: passed schedules the next check, failed takes the
+    item out of service until a later check passes (instrument) or it is emptied (bottle)."""
+
+    def test_passed_with_notes(self):
+        rm = FakeCheckRM({7: opentrons()})
+        routine_checks.schedule(rm, 7, routine_checks.rule_for("Maintenance: every 6 months"), date(2026, 4, 13))
+        result = bottle_actions.mark_tested(rm, [7], today=date(2026, 10, 13), notes="Replaced  O-rings,\nlubricated",
+                                            working_status=WORKING, open_status=OPEN, out_of_service_status=OUT_OF_SERVICE)
+        assert result == {"tested": [{"id": 7, "step": "Instrument maintenance (every 6 months)",
+                                      "next_due": "2027-04-13"}], "problems": []}
+        assert [(s["finished"], s["body"]) for s in rm.steps[7]] == [
+            (1, "Instrument maintenance (every 6 months), due 2026-10-13: passed 2026-10-13. Replaced O-rings, lubricated"),
+            (0, "Instrument maintenance (every 6 months), due 2027-04-13")]
+        assert rm.changes == []  # already Working
+
+    def test_failed_then_repaired_instrument(self):
+        rm = FakeCheckRM({7: opentrons()})
+        routine_checks.schedule(rm, 7, routine_checks.rule_for("Maintenance: every 6 months"), date(2026, 4, 13))
+        failed = bottle_actions.mark_failed(rm, [7], OUT_OF_SERVICE, today=date(2026, 10, 13), notes="Pipette noisy")
+        assert failed == {"failed": [{"id": 7, "title": "Opentrons Flex", "check": "Instrument maintenance (every 6 months)",
+                                      "place": "Room 3053 > Bench"}], "problems": []}
+        assert [(s["finished"], s["body"]) for s in rm.steps[7]] == [
+            (1, "Instrument maintenance (every 6 months), due 2026-10-13: FAILED 2026-10-13. Pipette noisy")]
+        assert rm.items[7]["status"] == OUT_OF_SERVICE  # and no next check while it is out of service
+
+        repaired = bottle_actions.mark_tested(rm, [7], today=date(2026, 10, 20), notes="New O-rings",
+                                              working_status=WORKING, open_status=OPEN,
+                                              out_of_service_status=OUT_OF_SERVICE)
+        assert repaired["tested"][0]["next_due"] == "2027-04-20" and rm.items[7]["status"] == WORKING
+        # the passed re-check is on record even though no step was open
+        assert [(s["finished"], s["body"]) for s in rm.steps[7]][1:] == [
+            (1, "Check passed 2026-10-20. New O-rings"),
+            (0, "Instrument maintenance (every 6 months), due 2027-04-20")]
+
+    def test_failed_without_an_open_step_is_still_recorded(self):
+        rm = FakeCheckRM({291: {"title": "Tosoh EcoSEC", "tags": "", "status": WORKING}})
+        result = bottle_actions.mark_failed(rm, [291], OUT_OF_SERVICE, today=date(2026, 10, 13))
+        assert result["failed"][0]["check"] == "" and rm.items[291]["status"] == OUT_OF_SERVICE
+        assert [(s["finished"], s["body"]) for s in rm.steps[291]] == [(1, "Check FAILED 2026-10-13")]
+
+    def test_instrument_without_an_interval_comes_back(self):
+        rm = FakeCheckRM({291: {"title": "Tosoh EcoSEC", "tags": "", "status": WORKING}})
+        bottle_actions.mark_failed(rm, [291], OUT_OF_SERVICE, today=date(2026, 10, 13))
+        result = bottle_actions.mark_tested(rm, [291], today=date(2026, 10, 15), notes="Pump fixed",
+                                            working_status=WORKING, open_status=OPEN,
+                                            out_of_service_status=OUT_OF_SERVICE)
+        assert result == {"tested": [{"id": 291, "step": "", "next_due": None}], "problems": []}
+        assert rm.items[291]["status"] == WORKING
+        assert [s["body"] for s in rm.steps[291]] == ["Check FAILED 2026-10-13", "Check passed 2026-10-15. Pump fixed"]
+        # but one that is in service and has no interval still has nothing to test
+        assert "no routine check" in bottle_actions.mark_tested(
+            rm, [291], working_status=WORKING, out_of_service_status=OUT_OF_SERVICE)["problems"][0]
+
+    def test_bottle_failed_stays_out_of_service_and_cannot_be_opened(self):
+        rm = FakeCheckRM({348: thf(), 400: {**thf(OUT_OF_SERVICE), "opened": ""}})
+        routine_checks.schedule(rm, 348, routine_checks.rule_for("Peroxide former: B"), date(2026, 4, 1))
+        bottle_actions.mark_failed(rm, [348], OUT_OF_SERVICE, today=date(2026, 10, 13), notes="Strip: 30 ppm")
+        assert rm.items[348]["status"] == OUT_OF_SERVICE and routine_checks.open_check_steps(rm.steps[348]) == []
+        refused = bottle_actions.mark_open(rm, [400], OPEN, today=TODAY, out_of_service_status=OUT_OF_SERVICE)
+        assert refused["opened"] == [] and "out of service" in refused["problems"][0]
+
+    def test_bottle_retested_and_passed_is_opened_again(self):
+        rm = FakeCheckRM({348: thf(OUT_OF_SERVICE)})
+        bottle_actions.mark_tested(rm, [348], today=date(2026, 10, 14), working_status=WORKING, open_status=OPEN,
+                                   out_of_service_status=OUT_OF_SERVICE)
+        assert rm.items[348]["status"] == OPEN
+
+    def test_new_instrument_is_working(self):
+        rm = FakeBottleRM()
+        add_instrument.create_instrument(rm, PUMP, today=date(2026, 10, 8), working_status=WORKING)
+        assert rm.calls[1][2]["status"] == WORKING
+
+    def test_alert_and_monthly_section(self):
+        import eln_common.config as config
+
+        failed = [{"id": 7, "title": "Opentrons Flex", "check": "Instrument maintenance (every 6 months)", "place": ""}]
+        alert = routine_checks.failed_alert(failed, "Pipette  noisy")
+        assert alert.split("\n") == [
+            "⚠️ *Failed check: now Out of service*",
+            f"• <{config.item_web_url(7)}|#7> Opentrons Flex: Instrument maintenance (every 6 months)",
+            "Notes: Pipette noisy",
+            "_Do not use it. Once fixed: scan + Tested → Passed. A bottle: dispose of it, then scan + Mark Empty._"]
+        report = {"overdue": [], "due": [], "problems": [],
+                  "out_of_service": [{"id": 7, "title": "Opentrons Flex", "place": ""}]}
+        text = routine_checks.format_report(report, date(2026, 11, 6))
+        assert "Nothing due this month ✓\n*Out of service*" in text and text.endswith("|#7> Opentrons Flex")
+
+    def test_out_of_service_list(self):
+        class RM(FakeCheckRM):
+            def items_with_status(self, status):
+                return [{"id": i, "title": it["title"]} for i, it in self.items.items() if it["status"] == status]
+
+        rm = RM({348: thf(OUT_OF_SERVICE), 7: opentrons(OUT_OF_SERVICE), 8: opentrons()})
+        assert routine_checks.out_of_service(rm, OUT_OF_SERVICE) == [
+            {"id": 7, "title": "Opentrons Flex", "place": "Room 3053 > Bench"},
+            {"id": 348, "title": "THF", "place": "Room 3053 > Bench"}]
+        assert routine_checks.out_of_service(rm, None) == []
+
+
+class TestCheckResultRoutes:
+    @pytest.fixture
+    def statuses(self, monkeypatch):
+        import eln_common.config as config
+
+        values = {"status_open": OPEN, "status_working": WORKING, "status_out_of_service": OUT_OF_SERVICE}
+        real = config.setting
+        monkeypatch.setattr(config, "setting", lambda key, default=None: values.get(key, real(key, default)))
+        return values
+
+    def test_failed_alerts_slack(self, client, monkeypatch, statuses, slack_messages):
+        rm = FakeCheckRM({7: opentrons()})
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        resp = client.post("/mark_tested", json={"id": [7], "result": "failed", "notes": "noisy"})
+        assert resp.status_code == 200 and resp.get_json()["failed"][0]["id"] == 7
+        [(args, kwargs)] = slack_messages
+        assert kwargs == {"channel": "maintenance"} and "Opentrons Flex" in args[0] and "noisy" in args[0]
+
+    def test_slack_failure_is_a_problem_not_an_error(self, client, monkeypatch, statuses):
+        import automations.slackbot as slackbot
+
+        rm = FakeCheckRM({7: opentrons()})
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        monkeypatch.setattr(slackbot, "send_message", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("not_in_channel")))
+        body = client.post("/mark_tested", json={"id": [7], "result": "failed"}).get_json()
+        assert rm.items[7]["status"] == OUT_OF_SERVICE and "Slack alert was not sent" in body["problems"][0]
+
+    def test_passed_is_the_default_and_bad_input_is_400(self, client, monkeypatch, statuses, slack_messages):
+        rm = FakeCheckRM({348: thf()})
+        routine_checks.schedule(rm, 348, routine_checks.rule_for("Peroxide former: B"), date(2026, 4, 1))
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        assert client.post("/mark_tested", json={"id": [348]}).get_json()["tested"][0]["id"] == 348
+        assert slack_messages == []
+        for body in ({"id": [348], "result": "maybe"}, {"id": [348], "notes": 5}):
+            assert client.post("/mark_tested", json=body).status_code == 400
+
+    def test_failed_needs_the_status_set_up(self, client, monkeypatch):
+        import eln_common.config as config
+
+        real = config.setting
+        monkeypatch.setattr(config, "setting", lambda key, default=None: None if key == "status_out_of_service" else real(key, default))
+        resp = client.post("/mark_tested", json={"id": [7], "result": "failed"})
+        assert resp.status_code == 500 and "Out of service" in resp.get_json()["error"]
+
+    def test_resource_status(self, client, monkeypatch, statuses):
+        rm = FakeCheckRM({7: opentrons(OUT_OF_SERVICE), 348: thf()})
+        monkeypatch.setattr(interface, "rm", lambda: rm)
+        assert client.get("/resource_status?id=7").get_json() == {
+            "id": 7, "title": "Opentrons Flex", "status": "Out of service", "out_of_service": True}
+        assert client.get("/resource_status?id=348").get_json()["out_of_service"] is False
+        assert client.get("/resource_status?id=x").status_code == 400
+        assert client.get("/resource_status?id=999").status_code == 404
 
 
 class TestCreateItemFromTemplate:
